@@ -1,6 +1,6 @@
 import { defineConfig } from "vite-plus";
 
-import {webdriverio} from "vite-plus/test/browser-webdriverio"
+import { playwright } from "vite-plus/test/browser-playwright";
 
 export default defineConfig({
   staged: {
@@ -20,13 +20,12 @@ export default defineConfig({
   },
   test: {
     include: ["tests/**/*.test.ts"],
-    ui:true,
     browser: {
       headless: true,
-      viewport: {width: 1920, height: 1080},
+      viewport: { width: 1920, height: 1080 },
       enabled: true,
-      instances: [{ browser: "chrome", }],
-      provider:webdriverio()
-     }
-    }
+      instances: [{ browser: "chromium" }],
+      provider: playwright(),
+    },
+  },
 });
