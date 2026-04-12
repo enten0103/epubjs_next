@@ -32,6 +32,9 @@
     "prepare": "vp config",
     "test:browser": "vitest --config=vitest.browser.config.ts"
   },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
   "devDependencies": {
     "@types/node": "^25.5.0",
     "@typescript/native-preview": "7.0.0-dev.20260328.1",
