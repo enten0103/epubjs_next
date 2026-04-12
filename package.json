@@ -30,7 +30,7 @@
     "check": "vp check",
     "prepublishOnly": "vp run build",
     "prepare": "vp config",
-    "test:browser": "vitest --config=vitest.browser.config.ts"
+    "test:browser": "vp test -w"
   },
   "dependencies": {
     "fflate": "^0.8.2"

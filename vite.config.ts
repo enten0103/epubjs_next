@@ -21,7 +21,6 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     browser: {
-      headless: true,
       viewport: { width: 1920, height: 1080 },
       enabled: true,
       instances: [{ browser: "chromium" }],
