@@ -4,13 +4,16 @@ import { playwright } from "vite-plus/test/browser-playwright";
 
 export default defineConfig({
   staged: {
-    "*": "vp check --fix",
+    "/src/*.{js,ts,tsx,vue}": "vp check --fix",
   },
   pack: {
     dts: {
       tsgo: true,
     },
-    exports: true,
+    entry: {
+      index: "src/index.ts",
+      "vite-plugin": "src/vite-plugin.ts",
+    },
   },
   lint: {
     options: {

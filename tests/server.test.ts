@@ -40,6 +40,7 @@ function createMockSW() {
 
   const swContainer = {
     register: vi.fn().mockResolvedValue(registration),
+    ready: Promise.resolve(registration),
     addEventListener: vi.fn((event: string, handler: (event: MessageEvent) => void) => {
       if (event === "message") capturedMessageHandler = handler;
     }),
@@ -232,6 +233,28 @@ describe("createEpubServer", () => {
       });
 
       expect(() => getMessageHandler()!(fakeEvent)).not.toThrow();
+    });
+  });
+
+  it("works without swUrl (plugin mode) using navigator.serviceWorker.ready", async () => {
+    const { activeSW, swContainer } = createMockSW();
+    const provider = createMockProvider({});
+
+    await withMockSWContainer(swContainer, async () => {
+      const server = await createEpubServer(provider, {
+        prefix: "/epub-plugin/",
+      });
+
+      // Should NOT have called register (SW already registered by plugin)
+      expect(swContainer.register).not.toHaveBeenCalled();
+
+      // Should still have sent ADD_PREFIX to the active SW
+      expect(activeSW.postMessage).toHaveBeenCalledWith({
+        type: "EPUB_SW_ADD_PREFIX",
+        prefix: "/epub-plugin/",
+      });
+
+      expect(server.prefix).toBe("/epub-plugin/");
     });
   });
 });

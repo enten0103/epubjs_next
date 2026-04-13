@@ -51,11 +51,13 @@ export type EpubServerOptions = {
   /**
    * URL pointing to the Service Worker script file (`epub-sw.js`).
    *
-   * The library ships the script at `epubjs-next/epub-sw`.
-   * You must serve it at a URL your browser can reach, e.g. by copying
-   * it to the `public/` directory or using a bundler asset import.
+   * When using the Vite plugin (`epubServiceWorker()`), the SW is
+   * registered automatically and this option can be omitted.
+   *
+   * For non-Vite setups, provide the URL so the library can register
+   * the SW on your behalf.
    */
-  swUrl: string;
+  swUrl?: string;
 
   /** ServiceWorker scope (defaults to `"/"`). */
   scope?: string;
@@ -98,19 +100,29 @@ export function _resetCachedRegistration(): void {
 }
 
 async function ensureServiceWorker(
-  swUrl: string,
-  scope: string,
+  swUrl?: string,
+  scope?: string,
 ): Promise<ServiceWorkerRegistration> {
   if (cachedRegistration?.active) return cachedRegistration;
 
-  const registration = await navigator.serviceWorker.register(swUrl, {
-    scope,
-  });
+  let registration: ServiceWorkerRegistration;
 
-  const sw = registration.installing ?? registration.waiting ?? registration.active;
-  if (!sw) throw new Error("Service Worker installation failed");
+  if (swUrl) {
+    // Explicit mode: register the SW ourselves
+    registration = await navigator.serviceWorker.register(swUrl, {
+      scope: scope ?? "/",
+    });
 
-  await waitForActivation(sw);
+    const sw = registration.installing ?? registration.waiting ?? registration.active;
+    if (!sw) throw new Error("Service Worker installation failed");
+
+    await waitForActivation(sw);
+  } else {
+    // Plugin mode: SW was already registered via the Vite plugin's
+    // transformIndexHtml injection — just wait for it to be ready.
+    registration = await navigator.serviceWorker.ready;
+  }
+
   cachedRegistration = registration;
   return registration;
 }
@@ -126,8 +138,12 @@ async function ensureServiceWorker(
  *
  * @example
  * ```ts
- * import { createEpubServer } from 'epubjs-next/provider/server';
+ * // With the Vite plugin (recommended) — no swUrl needed:
+ * const server = await createEpubServer(myProvider, {
+ *   prefix: '/epub-abc123/',
+ * });
  *
+ * // Without the Vite plugin — provide swUrl explicitly:
  * const server = await createEpubServer(myProvider, {
  *   prefix: '/epub-abc123/',
  *   swUrl:  '/epub-sw.js',
@@ -148,9 +164,8 @@ export async function createEpubServer(
   }
 
   const prefix = options.prefix.endsWith("/") ? options.prefix : `${options.prefix}/`;
-  const scope = options.scope ?? "/";
 
-  const registration = await ensureServiceWorker(options.swUrl, scope);
+  const registration = await ensureServiceWorker(options.swUrl, options.scope);
 
   // Tell the SW to start intercepting this prefix
   registration.active!.postMessage({
