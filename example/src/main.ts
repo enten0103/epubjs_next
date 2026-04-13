@@ -1,5 +1,6 @@
 import { createFileProviderFromBlob } from "epubjs-next/provider";
-import { createEpubServer } from "epubjs-next/provider/server";
+import { createEpubServiceWorker } from "epubjs-next/provider/server";
+import type { EpubServiceWorker, BookHandle } from "epubjs-next/provider/server";
 import { parseEpub3 } from "epubjs-next/parser";
 import type { TocItem } from "../../src/parser/types.ts";
 
@@ -10,8 +11,17 @@ const bookInfo = document.getElementById("book-info") as HTMLDivElement;
 const tocContainer = document.getElementById("toc-container") as HTMLDivElement;
 const placeholder = document.getElementById("placeholder") as HTMLDivElement;
 
-let currentServer: { prefix: string; dispose(): Promise<void> } | null = null;
+let sw: EpubServiceWorker | null = null;
+let currentBook: BookHandle | null = null;
 let currentPrefix = "";
+
+// Initialize the service worker manager once
+async function ensureSW(): Promise<EpubServiceWorker> {
+  if (!sw) {
+    sw = await createEpubServiceWorker();
+  }
+  return sw;
+}
 
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
@@ -20,17 +30,19 @@ fileInput.addEventListener("change", async () => {
   status.textContent = "Loading…";
 
   try {
-    if (currentServer) {
-      await currentServer.dispose();
+    // Remove the previous book if any
+    if (currentBook) {
+      currentBook.dispose();
     }
+
+    const manager = await ensureSW();
 
     const provider = await createFileProviderFromBlob(file);
     const book = await parseEpub3(provider);
 
     const prefix = `/epub-${Date.now()}/`;
-    const server = await createEpubServer(provider, { prefix });
-    currentServer = server;
-    currentPrefix = prefix;
+    currentBook = manager.addBook(provider, prefix);
+    currentPrefix = currentBook.prefix;
 
     // Display book metadata
     bookInfo.style.display = "block";

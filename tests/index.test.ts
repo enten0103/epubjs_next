@@ -1,6 +1,6 @@
 import { describe, it } from "vite-plus/test";
 import { createFileProviderFromPicker } from "../src/provider/index.ts";
-import { createEpubServer } from "../src/provider/server.ts";
+import { createEpubServiceWorker } from "../src/provider/server.ts";
 import { createReader } from "../src/index.ts";
 
 describe("index test", () => {
@@ -10,11 +10,11 @@ describe("index test", () => {
     btn?.addEventListener("click", async () => {
       const provider = await createFileProviderFromPicker();
       //安全策略影响，导致注册的provider必须在此目录下，仅测试生效
-      await createEpubServer(provider, {
-        prefix: "/src/provider/epub-test", // must match the reader prefix
+      const sw = await createEpubServiceWorker({
         swUrl: "../src/provider/epub-sw.ts",
         scope: "/src/provider/",
       });
+      sw.addBook(provider, "/src/provider/epub-test");
       const reader = createReader("/src/provider/epub-test");
       reader.mount("reader");
       setTimeout(() => {

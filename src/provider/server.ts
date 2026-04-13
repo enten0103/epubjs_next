@@ -40,14 +40,7 @@ function guessMimeType(path: string): string {
 
 // ── Public types ─────────────────────────────────────────────────────
 
-export type EpubServerOptions = {
-  /**
-   * URL path prefix the Service Worker will intercept.
-   * Requests to `<prefix>/<epubPath>` will be resolved via the provider.
-   * A trailing `/` is added automatically if missing.
-   */
-  prefix: string;
-
+export interface EpubServiceWorkerOptions {
   /**
    * URL pointing to the Service Worker script file (`epub-sw.js`).
    *
@@ -61,20 +54,42 @@ export type EpubServerOptions = {
 
   /** ServiceWorker scope (defaults to `"/"`). */
   scope?: string;
-};
+}
 
-export type EpubServer = {
-  /** The normalised prefix this server intercepts. */
+export interface BookHandle {
+  /** The normalised prefix this book is served under. */
   readonly prefix: string;
-  /** Unregister the message handler and remove the prefix from the SW. */
-  dispose(): Promise<void>;
-};
+  /** Unregister this book from the service worker. */
+  dispose(): void;
+}
+
+export interface EpubServiceWorker {
+  /**
+   * Register a book to be served under the given URL prefix.
+   *
+   * Requests to `<prefix>/<path>` will be intercepted by the SW and
+   * fulfilled by calling `provider.getBolbByPath(path)` on the main thread.
+   *
+   * @returns A handle to unregister this specific book.
+   * @throws If the prefix is already registered.
+   */
+  addBook(provider: FileProvider, prefix: string): BookHandle;
+
+  /**
+   * Unregister the book served under the given prefix.
+   * No-op if the prefix is not registered.
+   */
+  removeBook(prefix: string): void;
+
+  /**
+   * Dispose the service worker manager: unregister all books and remove
+   * the message listener.
+   */
+  dispose(): void;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-/**
- * Wait until the given ServiceWorker reaches the `activated` state.
- */
 function waitForActivation(sw: ServiceWorker): Promise<void> {
   if (sw.state === "activated") return Promise.resolve();
   return new Promise<void>((resolve) => {
@@ -88,34 +103,53 @@ function waitForActivation(sw: ServiceWorker): Promise<void> {
   });
 }
 
-/**
- * Ensure a single SW registration is reused across multiple
- * `createEpubServer` calls within the same page.
- */
-let cachedRegistration: ServiceWorkerRegistration | null = null;
-
-/** @internal Reset cached registration (for tests only). */
-export function _resetCachedRegistration(): void {
-  cachedRegistration = null;
+function normalizePrefix(prefix: string): string {
+  return prefix.endsWith("/") ? prefix : `${prefix}/`;
 }
 
-async function ensureServiceWorker(
-  swUrl?: string,
-  scope?: string,
-): Promise<ServiceWorkerRegistration> {
-  if (cachedRegistration?.active) return cachedRegistration;
+// ── Main API ─────────────────────────────────────────────────────────
+
+/**
+ * Create an EPUB service worker manager.
+ *
+ * Connects to (or registers) the service worker once, then lets you
+ * register multiple books under different URL prefixes via `addBook`.
+ *
+ * @example
+ * ```ts
+ * // With the Vite plugin (recommended) — SW is already registered:
+ * const sw = await createEpubServiceWorker();
+ *
+ * // Without the Vite plugin — provide swUrl explicitly:
+ * const sw = await createEpubServiceWorker({ swUrl: '/epub-sw.js' });
+ *
+ * // Register multiple books
+ * const book1 = sw.addBook(provider1, '/book-1/');
+ * const book2 = sw.addBook(provider2, '/book-2/');
+ *
+ * // Unregister a single book
+ * book1.dispose();
+ * // or: sw.removeBook('/book-2/');
+ *
+ * // Dispose everything
+ * sw.dispose();
+ * ```
+ */
+export async function createEpubServiceWorker(
+  options?: EpubServiceWorkerOptions,
+): Promise<EpubServiceWorker> {
+  if (!navigator.serviceWorker) {
+    throw new Error("Service Workers are not supported in this browser");
+  }
 
   let registration: ServiceWorkerRegistration;
 
-  if (swUrl) {
-    // Explicit mode: register the SW ourselves
-    registration = await navigator.serviceWorker.register(swUrl, {
-      scope: scope ?? "/",
+  if (options?.swUrl) {
+    registration = await navigator.serviceWorker.register(options.swUrl, {
+      scope: options.scope ?? "/",
     });
-
     const sw = registration.installing ?? registration.waiting ?? registration.active;
     if (!sw) throw new Error("Service Worker installation failed");
-
     await waitForActivation(sw);
   } else {
     // Plugin mode: SW was already registered via the Vite plugin's
@@ -123,61 +157,16 @@ async function ensureServiceWorker(
     registration = await navigator.serviceWorker.ready;
   }
 
-  cachedRegistration = registration;
-  return registration;
-}
+  const books = new Map<string, FileProvider>();
 
-// ── Main API ─────────────────────────────────────────────────────────
-
-/**
- * Create a virtual file server backed by a Service Worker.
- *
- * Every HTTP request whose pathname starts with `prefix` will be
- * intercepted by the SW and fulfilled by calling `provider.getBolbByPath`
- * on the main thread.
- *
- * @example
- * ```ts
- * // With the Vite plugin (recommended) — no swUrl needed:
- * const server = await createEpubServer(myProvider, {
- *   prefix: '/epub-abc123/',
- * });
- *
- * // Without the Vite plugin — provide swUrl explicitly:
- * const server = await createEpubServer(myProvider, {
- *   prefix: '/epub-abc123/',
- *   swUrl:  '/epub-sw.js',
- * });
- *
- * // Now fetch('/epub-abc123/OEBPS/chapter1.xhtml')
- * // is served from provider.getBolbByPath('OEBPS/chapter1.xhtml')
- *
- * await server.dispose();
- * ```
- */
-export async function createEpubServer(
-  provider: FileProvider,
-  options: EpubServerOptions,
-): Promise<EpubServer> {
-  if (!navigator.serviceWorker) {
-    throw new Error("Service Workers are not supported in this browser");
-  }
-
-  const prefix = options.prefix.endsWith("/") ? options.prefix : `${options.prefix}/`;
-
-  const registration = await ensureServiceWorker(options.swUrl, options.scope);
-
-  // Tell the SW to start intercepting this prefix
-  registration.active!.postMessage({
-    type: "EPUB_SW_ADD_PREFIX",
-    prefix,
-  });
-
-  // Bridge: SW asks for a file → we read it from the provider → send back
+  // Single message handler that routes to the correct book by prefix
   const onMessage = async (event: MessageEvent) => {
     const data = event.data;
     if (data?.type !== "EPUB_SW_FETCH") return;
-    if (data.prefix !== prefix) return; // not for this server instance
+
+    const prefix = data.prefix as string;
+    const provider = books.get(prefix);
+    if (!provider) return;
 
     const port = event.ports[0];
     if (!port) return;
@@ -195,13 +184,51 @@ export async function createEpubServer(
   navigator.serviceWorker.addEventListener("message", onMessage);
 
   return {
-    prefix,
-    async dispose() {
-      navigator.serviceWorker.removeEventListener("message", onMessage);
+    addBook(provider: FileProvider, prefix: string): BookHandle {
+      const normalized = normalizePrefix(prefix);
+
+      if (books.has(normalized)) {
+        throw new Error(`Prefix already registered: ${normalized}`);
+      }
+
+      books.set(normalized, provider);
+      registration.active!.postMessage({
+        type: "EPUB_SW_ADD_PREFIX",
+        prefix: normalized,
+      });
+
+      return {
+        prefix: normalized,
+        dispose() {
+          if (!books.has(normalized)) return;
+          books.delete(normalized);
+          registration.active?.postMessage({
+            type: "EPUB_SW_REMOVE_PREFIX",
+            prefix: normalized,
+          });
+        },
+      };
+    },
+
+    removeBook(prefix: string): void {
+      const normalized = normalizePrefix(prefix);
+      if (!books.has(normalized)) return;
+      books.delete(normalized);
       registration.active?.postMessage({
         type: "EPUB_SW_REMOVE_PREFIX",
-        prefix,
+        prefix: normalized,
       });
+    },
+
+    dispose(): void {
+      navigator.serviceWorker.removeEventListener("message", onMessage);
+      for (const prefix of books.keys()) {
+        registration.active?.postMessage({
+          type: "EPUB_SW_REMOVE_PREFIX",
+          prefix,
+        });
+      }
+      books.clear();
     },
   };
 }

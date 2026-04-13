@@ -59,7 +59,7 @@ async function compileSw(): Promise<string> {
  *   `navigator.serviceWorker.register()` so the SW is ready before any
  *   application code runs.
  *
- * With this plugin, `createEpubServer()` no longer requires a `swUrl`
+ * With this plugin, `createEpubServiceWorker()` no longer requires a `swUrl`
  * option — the SW is already registered by the time user code executes.
  */
 export function epubServiceWorker(options: EpubSwPluginOptions = {}) {
