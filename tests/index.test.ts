@@ -2,6 +2,7 @@ import { describe, it } from "vite-plus/test";
 import { createFileProviderFromPicker } from "../src/provider/index.ts";
 import { createEpubServiceWorker } from "../src/provider/server.ts";
 import { createReader } from "../src/index.ts";
+import { parseEpub3 } from "../src/parser/index.ts";
 
 describe("index test", () => {
   it("reader", () => {
@@ -16,10 +17,10 @@ describe("index test", () => {
       });
       sw.addBook(provider, "/src/provider/epub-test");
       const reader = createReader("/src/provider/epub-test");
+      const book = await parseEpub3(provider);
+      console.log(book);
       reader.mount("reader");
-      setTimeout(() => {
-        reader.setSrc("OEBPS/Text/chapter0000.xhtml");
-      }, 2000);
+      reader.setSrc("OEBPS/Text/chapter0000.xhtml");
     });
   });
 });

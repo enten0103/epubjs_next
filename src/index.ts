@@ -9,7 +9,9 @@ export const createReader = (prefix: string) => {
     }
     root.appendChild(iframe);
   };
+  const controller = () => {};
   return {
+    controller,
     mount,
     setSrc,
   };
