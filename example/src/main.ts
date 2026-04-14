@@ -1,7 +1,9 @@
+import { createReader } from "epubjs-next";
 import { createFileProviderFromBlob } from "epubjs-next/provider";
 import { createEpubServiceWorker } from "epubjs-next/provider/server";
 import type { EpubServiceWorker, BookHandle } from "epubjs-next/provider/server";
 import { parseEpub3 } from "epubjs-next/parser";
+import type { Reader } from "epubjs-next";
 import type { TocItem } from "../../src/parser/types.ts";
 
 const fileInput = document.getElementById("file-input") as HTMLInputElement;
@@ -14,6 +16,7 @@ const placeholder = document.getElementById("placeholder") as HTMLDivElement;
 let sw: EpubServiceWorker | null = null;
 let currentBook: BookHandle | null = null;
 let currentPrefix = "";
+let currentReader: Reader | null = null;
 
 // Initialize the service worker manager once
 async function ensureSW(): Promise<EpubServiceWorker> {
@@ -34,6 +37,8 @@ fileInput.addEventListener("change", async () => {
     if (currentBook) {
       currentBook.dispose();
     }
+    currentReader?.context.destroy();
+    currentReader = null;
 
     const manager = await ensureSW();
 
@@ -57,19 +62,23 @@ fileInput.addEventListener("change", async () => {
     if (book.toc && book.toc.length > 0) {
       tocContainer.style.display = "block";
       tocContainer.innerHTML = "<h3>Table of Contents</h3>" + renderToc(book.toc);
-      tocContainer.addEventListener("click", onTocClick);
+      tocContainer.onclick = onTocClick;
     } else {
       tocContainer.style.display = "none";
+      tocContainer.onclick = null;
     }
 
     // Show reader, hide placeholder
     container.style.display = "block";
     placeholder.style.display = "none";
 
-    // Navigate to first spine item
-    if (book.spine.length > 0) {
-      navigateTo(prefix + book.spine[0].href);
-    }
+    currentReader = createReader({
+      prefix: currentPrefix,
+      root: container,
+      book,
+      render: "scrollSpilt",
+    });
+    await currentReader.context.ready;
 
     status.textContent = "✓ Loaded";
   } catch (err) {
@@ -78,18 +87,64 @@ fileInput.addEventListener("change", async () => {
   }
 });
 
-function navigateTo(url: string) {
-  container.innerHTML = "";
-  const iframe = document.createElement("iframe");
-  iframe.src = url;
-  container.appendChild(iframe);
+function getContentRoot(doc: Document): Element {
+  return (
+    doc.body ??
+    Array.from(doc.getElementsByTagName("*")).find((element) => element.localName === "body") ??
+    doc.documentElement
+  );
+}
+
+function buildElementPath(root: Element, target: Element): number[] {
+  const path: number[] = [];
+  let current: Element | null = target;
+  while (current && current !== root) {
+    const ancestor: Element | null = current.parentElement;
+    if (!ancestor) {
+      return [];
+    }
+    const index = Array.from(ancestor.children).indexOf(current);
+    if (index < 0) {
+      return [];
+    }
+    path.unshift(index + 1);
+    current = ancestor;
+  }
+  return current === root ? path : [];
+}
+
+async function navigateTo(href: string) {
+  if (!currentReader) {
+    return;
+  }
+
+  const [html, fragment] = href.split("#", 2);
+  await currentReader.controller.setLocation({
+    html,
+    indexs: [],
+  });
+
+  if (!fragment) {
+    return;
+  }
+
+  const doc = currentReader.context.getCurrentDocument();
+  const target = doc?.getElementById(fragment);
+  if (!doc || !target) {
+    return;
+  }
+
+  await currentReader.controller.setLocation({
+    html,
+    indexs: buildElementPath(getContentRoot(doc), target),
+  });
 }
 
 function onTocClick(e: Event) {
   const target = e.target as HTMLElement;
   if (target.tagName === "A" && target.dataset.href) {
     e.preventDefault();
-    navigateTo(currentPrefix + target.dataset.href);
+    void navigateTo(target.dataset.href);
   }
 }
 

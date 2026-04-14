@@ -157,14 +157,15 @@ describe("createFileProviderFromFile", () => {
 describe("createFileProviderFromHandle", () => {
   it("reads a FileSystemFileHandle and creates a provider", async () => {
     const file = epubFile("handled.epub");
+    const getFile = vi.fn().mockResolvedValue(file);
     const handle = {
-      getFile: vi.fn().mockResolvedValue(file),
+      getFile,
     } as unknown as FileSystemFileHandle;
 
     const provider = await createFileProviderFromHandle(handle);
     const text = await provider.getTextByPath("OEBPS/content.opf");
     expect(text).toContain("Test Book");
-    expect(handle.getFile).toHaveBeenCalledOnce();
+    expect(getFile).toHaveBeenCalledOnce();
   });
 });
 

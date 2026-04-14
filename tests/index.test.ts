@@ -1,26 +1,63 @@
-import { describe, it } from "vite-plus/test";
-import { createFileProviderFromPicker } from "../src/provider/index.ts";
-import { createEpubServiceWorker } from "../src/provider/server.ts";
-import { createReader } from "../src/index.ts";
-import { parseEpub3 } from "../src/parser/index.ts";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
-describe("index test", () => {
-  it("reader", () => {
-    document.body.innerHTML = `<html><body><button id='button'>click to chose a file</button><div id='reader'></div></body></html>`;
-    const btn = document.getElementById("button");
-    btn?.addEventListener("click", async () => {
-      const provider = await createFileProviderFromPicker();
-      //安全策略影响，导致注册的provider必须在此目录下，仅测试生效
-      const sw = await createEpubServiceWorker({
-        swUrl: "../src/provider/epub-sw.ts",
-        scope: "/src/provider/",
-      });
-      sw.addBook(provider, "/src/provider/epub-test");
-      const reader = createReader("/src/provider/epub-test");
-      const book = await parseEpub3(provider);
-      console.log(book);
-      reader.mount("reader");
-      reader.setSrc("OEBPS/Text/chapter0000.xhtml");
+import { createReader } from "../src/index.ts";
+import type { EpubBook } from "../src/parser/types.ts";
+
+const TEST_BOOK: EpubBook = {
+  id: "reader-index-book",
+  pkg: {
+    packagePath: "content.opf",
+    packageDir: "",
+  },
+  manifest: new Map(),
+  spine: [
+    {
+      idref: "chapter-1",
+      href: "chapter-1.xhtml",
+      mediaType: "application/xhtml+xml",
+    },
+    {
+      idref: "chapter-2",
+      href: "chapter-2.xhtml",
+      mediaType: "application/xhtml+xml",
+    },
+  ],
+};
+
+let currentReader: ReturnType<typeof createReader> | null = null;
+
+afterEach(() => {
+  currentReader?.context.destroy();
+  currentReader = null;
+  document.body.innerHTML = "";
+});
+
+describe("createReader", () => {
+  it("creates the configured render and keeps controller plus context", async () => {
+    document.body.innerHTML = `<div id="reader" style="width:320px;height:200px"></div>`;
+
+    currentReader = createReader({
+      prefix: "/scroll-spilt",
+      root: "reader",
+      book: TEST_BOOK,
+      render: "scrollSpilt",
+    });
+
+    await currentReader.context.ready;
+
+    expect(currentReader.render).toBe("scrollSpilt");
+    expect(currentReader.context.book).toBe(TEST_BOOK);
+    expect(currentReader.context.iframe.parentElement?.id).toBe("reader");
+    expect(currentReader.controller.getCurrent().html).toBe("chapter-1.xhtml");
+
+    await currentReader.controller.setLocation({
+      html: "chapter-2.xhtml",
+      indexs: [1, 2, 1],
+    });
+
+    expect(currentReader.controller.getCurrent()).toEqual({
+      html: "chapter-2.xhtml",
+      indexs: [1, 2, 1],
     });
   });
 });
