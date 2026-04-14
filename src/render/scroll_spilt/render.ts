@@ -2,6 +2,9 @@ import type { EpubBook } from "../../parser/types.ts";
 import { useIframe } from "../iframe.ts";
 import type { ScrollSpiltController } from "./controller.ts";
 import { useScrollSpiltController } from "./controller.ts";
+import type { ScrollSpiltEvents } from "./event.ts";
+import type { ScrollSpiltDocumentChangeListener } from "./event.ts";
+import { createScrollSpiltDocumentChangeHook } from "./event.ts";
 
 export type ScrollSpiltRenderContext = {
   iframe: HTMLIFrameElement;
@@ -12,6 +15,7 @@ export type ScrollSpiltRenderContext = {
   loadHref: (href: string) => Promise<Document>;
   getCurrentDocument: () => Document | null;
   getCurrentSpineIndex: () => number;
+  onDocumentChange: (listener: ScrollSpiltDocumentChangeListener) => () => void;
 };
 
 export type ScrollSpiltRenderResult = ScrollSpiltRenderContext & {
@@ -67,8 +71,10 @@ export const scrollSpiltRender = (
   prefix: string,
   root: HTMLElement,
   book: EpubBook,
+  events?: ScrollSpiltEvents,
 ): ScrollSpiltRenderResult => {
   const { iframe, setSrc } = useIframe(prefix);
+  const onDocumentChangeHook = createScrollSpiltDocumentChangeHook(events);
   const prefixUrl = new URL(normalizePrefix(prefix), window.location.href);
   iframe.style.display = "block";
   iframe.style.border = "0";
@@ -78,6 +84,13 @@ export const scrollSpiltRender = (
   root.replaceChildren(iframe);
   let currentSpineIndex = 0;
   let currentDocument: Document | null = null;
+  const getCurrentHref = (): string => {
+    const item = book.spine[currentSpineIndex];
+    if (!item) {
+      throw new Error(`Spine index out of range: ${currentSpineIndex}`);
+    }
+    return item.href;
+  };
 
   const extractBookHref = (url: string): string | null => {
     const resolvedUrl = new URL(url, window.location.href);
@@ -101,6 +114,7 @@ export const scrollSpiltRender = (
       return null;
     }
 
+    const previousDocument = currentDocument;
     currentDocument = loadedDocument;
     const loadedHref = extractBookHref(iframe.contentWindow?.location.href ?? iframe.src);
     if (loadedHref) {
@@ -108,6 +122,13 @@ export const scrollSpiltRender = (
       if (nextIndex !== null) {
         currentSpineIndex = nextIndex;
       }
+    }
+    if (previousDocument !== loadedDocument) {
+      onDocumentChangeHook.emit({
+        document: loadedDocument,
+        href: getCurrentHref(),
+        spineIndex: currentSpineIndex,
+      });
     }
     return loadedDocument;
   };
@@ -257,6 +278,7 @@ export const scrollSpiltRender = (
     loadSpine,
     getCurrentDocument: () => currentDocument,
     getCurrentSpineIndex: () => currentSpineIndex,
+    onDocumentChange: onDocumentChangeHook.on,
   };
 
   return {

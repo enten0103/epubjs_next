@@ -35,9 +35,9 @@ function updateXhtmlButtons() {
     return;
   }
 
-  const currentIndex = currentReader.context.getCurrentSpineIndex();
+  const currentIndex = currentReader.getCurrentSpineIndex();
   prevXhtmlButton.disabled = currentIndex <= 0;
-  nextXhtmlButton.disabled = currentIndex >= currentReader.context.book.spine.length - 1;
+  nextXhtmlButton.disabled = currentIndex >= currentReader.book.spine.length - 1;
 }
 
 async function navigateBySpine(offset: -1 | 1) {
@@ -45,14 +45,14 @@ async function navigateBySpine(offset: -1 | 1) {
     return;
   }
 
-  const nextIndex = currentReader.context.getCurrentSpineIndex() + offset;
-  const nextItem = currentReader.context.book.spine[nextIndex];
+  const nextIndex = currentReader.getCurrentSpineIndex() + offset;
+  const nextItem = currentReader.book.spine[nextIndex];
   if (!nextItem) {
     updateXhtmlButtons();
     return;
   }
 
-  await currentReader.controller.setLocation({
+  await currentReader.setLocation({
     html: nextItem.href,
   });
   updateXhtmlButtons();
@@ -77,7 +77,7 @@ fileInput.addEventListener("change", async () => {
     if (currentBook) {
       currentBook.dispose();
     }
-    currentReader?.context.destroy();
+    currentReader?.destroy();
     currentReader = null;
     updateXhtmlButtons();
 
@@ -118,13 +118,13 @@ fileInput.addEventListener("change", async () => {
       root: container,
       book,
       render: "scrollSpilt",
+      events: {
+        onDocumentChange() {
+          updateXhtmlButtons();
+        },
+      },
     });
-    await currentReader.context.ready;
-    currentReader.context.iframe.addEventListener("load", () => {
-      if (currentReader) {
-        updateXhtmlButtons();
-      }
-    });
+    await currentReader.ready;
     updateXhtmlButtons();
 
     status.textContent = "✓ Loaded";
@@ -167,7 +167,7 @@ async function navigateTo(href: string) {
   }
 
   const [html, fragment] = href.split("#", 2);
-  await currentReader.controller.setLocation({
+  await currentReader.setLocation({
     html,
   });
 
@@ -176,13 +176,13 @@ async function navigateTo(href: string) {
     return;
   }
 
-  const doc = currentReader.context.getCurrentDocument();
+  const doc = currentReader.getCurrentDocument();
   const target = doc?.getElementById(fragment);
   if (!doc || !target) {
     return;
   }
 
-  await currentReader.controller.setLocation({
+  await currentReader.setLocation({
     html,
     indexs: buildElementPath(getContentRoot(doc), target),
   });

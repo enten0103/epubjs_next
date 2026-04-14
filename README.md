@@ -4,7 +4,7 @@ A small Vite+ reader playground with browser-based tests.
 
 ## Scroll split reader
 
-`createReader({ prefix, root, book, render: "scrollSpilt" })` selects the scroll split render, mounts a same-sized iframe into `root`, scrolls each spine XHTML inside that iframe, and keeps both the render context and controller on the returned reader object.
+`createReader({ prefix, root, book, render: "scrollSpilt" })` selects the scroll split render, mounts a same-sized iframe into `root`, scrolls each spine XHTML inside that iframe, and returns a direct controller object.
 
 ```ts
 import { createReader } from "epubjs-next";
@@ -14,11 +14,16 @@ const reader = createReader({
   root: document.getElementById("reader")!,
   book,
   render: "scrollSpilt",
+  events: {
+    onDocumentChange({ document, href, spineIndex }) {
+      console.log("loaded", href, spineIndex, document.title);
+    },
+  },
 });
 
-await reader.context.ready;
-await reader.controller.next();
-await reader.controller.setLocation({
+await reader.ready;
+await reader.next();
+await reader.setLocation({
   html: "OEBPS/Text/chapter1.xhtml",
   indexs: [1, 2, 1],
 });

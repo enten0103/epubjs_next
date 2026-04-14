@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import type { EpubBook } from "../src/parser/types.ts";
+import type { ScrollSpiltDocumentChangeEvent } from "../src/render/scroll_spilt/event.ts";
 import { scrollSpiltRender } from "../src/render/scroll_spilt/render.ts";
 
 const TEST_PREFIX = "/scroll-spilt";
@@ -170,5 +171,34 @@ describe("scrollSpiltRender", () => {
     expect(reader.getCurrentSpineIndex()).toBe(1);
     expect(reader.controller.getCurrent().html).toBe("chapter-2.xhtml");
     expect(target?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY).toBeLessThan(8);
+  });
+
+  it("emits document-change events with rendered document and current href", async () => {
+    const root = createRoot();
+    const reader = scrollSpiltRender(TEST_PREFIX, root, TEST_BOOK);
+    readers.push(reader);
+
+    const seen: ScrollSpiltDocumentChangeEvent[] = [];
+    const unsubscribe = reader.onDocumentChange((event) => {
+      seen.push(event);
+    });
+
+    await reader.ready;
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.href).toBe("chapter-1.xhtml");
+    expect(seen[0]?.document.getElementById("chapter-1-root")).toBeTruthy();
+
+    await reader.controller.next();
+    expect(seen).toHaveLength(1);
+
+    await reader.controller.next();
+    expect(seen).toHaveLength(2);
+    expect(seen[1]?.href).toBe("chapter-2.xhtml");
+    expect(seen[1]?.document.getElementById("chapter-2-root")).toBeTruthy();
+
+    unsubscribe();
+    await reader.controller.prev();
+    expect(seen).toHaveLength(2);
   });
 });

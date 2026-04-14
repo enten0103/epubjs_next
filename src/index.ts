@@ -1,11 +1,21 @@
 import type { EpubBook } from "./parser/types.ts";
 import type { ScrollSpiltController } from "./render/scroll_spilt/controller.ts";
+import type {
+  ScrollSpiltDocumentChangeEvent,
+  ScrollSpiltDocumentChangeListener,
+  ScrollSpiltEvents,
+} from "./render/scroll_spilt/event.ts";
 import { scrollSpiltRender } from "./render/scroll_spilt/render.ts";
 import type { ScrollSpiltRenderResult } from "./render/scroll_spilt/render.ts";
 
 export type { EpubBook } from "./parser/types.ts";
 export type { EpubLocation } from "./render/location.ts";
 export type { ScrollSpiltController } from "./render/scroll_spilt/controller.ts";
+export type {
+  ScrollSpiltDocumentChangeEvent,
+  ScrollSpiltDocumentChangeListener,
+  ScrollSpiltEvents,
+} from "./render/scroll_spilt/event.ts";
 export type {
   ScrollSpiltRenderContext,
   ScrollSpiltRenderResult,
@@ -22,15 +32,17 @@ export type CreateReaderOptions = {
   root: ReaderRoot;
   book: EpubBook;
   render: ReaderRender;
+  events?: ReaderEvents;
 };
 
-export type ScrollSpiltReaderContext = Omit<ScrollSpiltRenderResult, "controller">;
+export type ReaderDocumentChangeEvent = ScrollSpiltDocumentChangeEvent;
+export type ReaderDocumentChangeListener = ScrollSpiltDocumentChangeListener;
+export type ReaderEvents = ScrollSpiltEvents;
 
 export type ScrollSpiltReader = {
   render: "scrollSpilt";
-  controller: ScrollSpiltController;
-  context: ScrollSpiltReaderContext;
-};
+} & Omit<ScrollSpiltRenderResult, "controller"> &
+  ScrollSpiltController;
 
 export type Reader = ScrollSpiltReader;
 
@@ -50,12 +62,17 @@ const resolveRoot = (root: ReaderRoot): HTMLElement => {
 };
 
 const createScrollSpiltReader = (options: CreateReaderOptions): ScrollSpiltReader => {
-  const renderResult = scrollSpiltRender(options.prefix, resolveRoot(options.root), options.book);
+  const renderResult = scrollSpiltRender(
+    options.prefix,
+    resolveRoot(options.root),
+    options.book,
+    options.events,
+  );
   const { controller, ...context } = renderResult;
   return {
     render: "scrollSpilt",
-    controller,
-    context,
+    ...context,
+    ...controller,
   };
 };
 
