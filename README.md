@@ -24,4 +24,4 @@ await reader.controller.setLocation({
 });
 ```
 
-`EpubLocation.html` is the spine item's href, and `indexs` is a 1-based element path inside that XHTML document.
+`EpubLocation.html` is the spine item's href. `indexs` is a 1-based element path inside that XHTML document, and it may be omitted (or left empty) to mean the document root, i.e. the same navigation semantic as `[0]`.

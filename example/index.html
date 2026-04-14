@@ -25,6 +25,9 @@
         gap: 12px;
         align-items: center;
       }
+      .controls button {
+        padding: 6px 10px;
+      }
       #status {
         color: #666;
         font-size: 14px;
@@ -74,12 +77,13 @@
         border: 1px solid #ddd;
         border-radius: 4px;
         overflow: hidden;
+        height: 80vh;
         min-height: 80vh;
         display: none;
       }
       #container iframe {
         width: 100%;
-        height: 80vh;
+        height: 100%;
         border: none;
       }
       .placeholder {
@@ -98,6 +102,8 @@
     <h1>EPUB.js Next — Example</h1>
     <div class="controls">
       <input type="file" id="file-input" accept=".epub" />
+      <button id="prev-xhtml" disabled>Previous XHTML</button>
+      <button id="next-xhtml" disabled>Next XHTML</button>
       <span id="status"></span>
     </div>
     <div id="book-info"></div>

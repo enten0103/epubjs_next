@@ -92,6 +92,13 @@ const resolveElementByPath = (root: Element, indexs: readonly number[]): Element
   return current;
 };
 
+const normalizeLocationIndexs = (indexs?: readonly number[]): number[] => {
+  if (!indexs || indexs.length === 0) {
+    return [];
+  }
+  return indexs[0] === 0 ? indexs.slice(1) : [...indexs];
+};
+
 const buildElementPath = (root: Element, target: Element): number[] => {
   const path: number[] = [];
   let current: Element | null = target;
@@ -192,16 +199,15 @@ export const useScrollSpiltController = (
 ): ScrollSpiltController => ({
   async setLocation(location) {
     const doc = await context.loadHref(location.html);
-    if (location.indexs.length === 0) {
+    const indexs = normalizeLocationIndexs(location.indexs);
+    if (indexs.length === 0) {
       scrollToTop(doc);
       return;
     }
 
-    const target = resolveElementByPath(getContentRoot(doc), location.indexs);
+    const target = resolveElementByPath(getContentRoot(doc), indexs);
     if (!target) {
-      throw new Error(
-        `Cannot resolve element path for ${location.html}: [${location.indexs.join(",")}]`,
-      );
+      throw new Error(`Cannot resolve element path for ${location.html}: [${indexs.join(",")}]`);
     }
     scrollToElement(doc, target);
   },

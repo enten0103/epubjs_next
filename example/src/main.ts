@@ -12,6 +12,8 @@ const status = document.getElementById("status") as HTMLSpanElement;
 const bookInfo = document.getElementById("book-info") as HTMLDivElement;
 const tocContainer = document.getElementById("toc-container") as HTMLDivElement;
 const placeholder = document.getElementById("placeholder") as HTMLDivElement;
+const prevXhtmlButton = document.getElementById("prev-xhtml") as HTMLButtonElement;
+const nextXhtmlButton = document.getElementById("next-xhtml") as HTMLButtonElement;
 
 let sw: EpubServiceWorker | null = null;
 let currentBook: BookHandle | null = null;
@@ -26,6 +28,44 @@ async function ensureSW(): Promise<EpubServiceWorker> {
   return sw;
 }
 
+function updateXhtmlButtons() {
+  if (!currentReader) {
+    prevXhtmlButton.disabled = true;
+    nextXhtmlButton.disabled = true;
+    return;
+  }
+
+  const currentIndex = currentReader.context.getCurrentSpineIndex();
+  prevXhtmlButton.disabled = currentIndex <= 0;
+  nextXhtmlButton.disabled = currentIndex >= currentReader.context.book.spine.length - 1;
+}
+
+async function navigateBySpine(offset: -1 | 1) {
+  if (!currentReader) {
+    return;
+  }
+
+  const nextIndex = currentReader.context.getCurrentSpineIndex() + offset;
+  const nextItem = currentReader.context.book.spine[nextIndex];
+  if (!nextItem) {
+    updateXhtmlButtons();
+    return;
+  }
+
+  await currentReader.controller.setLocation({
+    html: nextItem.href,
+  });
+  updateXhtmlButtons();
+}
+
+prevXhtmlButton.addEventListener("click", () => {
+  void navigateBySpine(-1);
+});
+
+nextXhtmlButton.addEventListener("click", () => {
+  void navigateBySpine(1);
+});
+
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
   if (!file) return;
@@ -39,6 +79,7 @@ fileInput.addEventListener("change", async () => {
     }
     currentReader?.context.destroy();
     currentReader = null;
+    updateXhtmlButtons();
 
     const manager = await ensureSW();
 
@@ -79,11 +120,18 @@ fileInput.addEventListener("change", async () => {
       render: "scrollSpilt",
     });
     await currentReader.context.ready;
+    currentReader.context.iframe.addEventListener("load", () => {
+      if (currentReader) {
+        updateXhtmlButtons();
+      }
+    });
+    updateXhtmlButtons();
 
     status.textContent = "✓ Loaded";
   } catch (err) {
     status.textContent = `Error: ${(err as Error).message}`;
     console.error(err);
+    updateXhtmlButtons();
   }
 });
 
@@ -121,10 +169,10 @@ async function navigateTo(href: string) {
   const [html, fragment] = href.split("#", 2);
   await currentReader.controller.setLocation({
     html,
-    indexs: [],
   });
 
   if (!fragment) {
+    updateXhtmlButtons();
     return;
   }
 
@@ -138,6 +186,7 @@ async function navigateTo(href: string) {
     html,
     indexs: buildElementPath(getContentRoot(doc), target),
   });
+  updateXhtmlButtons();
 }
 
 function onTocClick(e: Event) {

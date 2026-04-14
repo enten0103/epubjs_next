@@ -52,6 +52,21 @@ describe("createReader", () => {
 
     await currentReader.controller.setLocation({
       html: "chapter-2.xhtml",
+    });
+
+    expect(currentReader.context.getCurrentSpineIndex()).toBe(1);
+    expect(currentReader.context.iframe.contentWindow?.scrollY ?? Number.NaN).toBe(0);
+
+    await currentReader.controller.setLocation({
+      html: "chapter-1.xhtml",
+      indexs: [0],
+    });
+
+    expect(currentReader.context.getCurrentSpineIndex()).toBe(0);
+    expect(currentReader.context.iframe.contentWindow?.scrollY ?? Number.NaN).toBe(0);
+
+    await currentReader.controller.setLocation({
+      html: "chapter-2.xhtml",
       indexs: [1, 2, 1],
     });
 

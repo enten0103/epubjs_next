@@ -96,8 +96,8 @@ describe("scrollSpiltRender", () => {
     await reader.ready;
 
     expect(root.firstElementChild).toBe(reader.iframe);
-    expect(reader.iframe.style.width).toBe("320px");
-    expect(reader.iframe.style.height).toBe("200px");
+    expect(reader.iframe.style.width).toBe("100%");
+    expect(reader.iframe.style.height).toBe("100%");
     expect(reader.iframe.contentDocument?.getElementById("chapter-1-root")).toBeTruthy();
     expect(reader.controller.getCurrent().html).toBe("chapter-1.xhtml");
   });
