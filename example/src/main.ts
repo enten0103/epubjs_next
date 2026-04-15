@@ -1,7 +1,5 @@
 import { createReader } from "epubjs-next";
 import { createFileProviderFromBlob } from "epubjs-next/provider";
-import { createEpubServiceWorker } from "epubjs-next/provider/server";
-import type { EpubServiceWorker, BookHandle } from "epubjs-next/provider/server";
 import { parseEpub3 } from "epubjs-next/parser";
 import type { Reader } from "epubjs-next";
 import type { TocItem } from "../../src/parser/types.ts";
@@ -15,18 +13,7 @@ const placeholder = document.getElementById("placeholder") as HTMLDivElement;
 const prevXhtmlButton = document.getElementById("prev-xhtml") as HTMLButtonElement;
 const nextXhtmlButton = document.getElementById("next-xhtml") as HTMLButtonElement;
 
-let sw: EpubServiceWorker | null = null;
-let currentBook: BookHandle | null = null;
-let currentPrefix = "";
 let currentReader: Reader | null = null;
-
-// Initialize the service worker manager once
-async function ensureSW(): Promise<EpubServiceWorker> {
-  if (!sw) {
-    sw = await createEpubServiceWorker();
-  }
-  return sw;
-}
 
 function updateXhtmlButtons() {
   if (!currentReader) {
@@ -73,22 +60,12 @@ fileInput.addEventListener("change", async () => {
   status.textContent = "Loading…";
 
   try {
-    // Remove the previous book if any
-    if (currentBook) {
-      currentBook.dispose();
-    }
     currentReader?.destroy();
     currentReader = null;
     updateXhtmlButtons();
 
-    const manager = await ensureSW();
-
     const provider = await createFileProviderFromBlob(file);
     const book = await parseEpub3(provider);
-
-    const prefix = `/epub-${Date.now()}/`;
-    currentBook = manager.addBook(provider, prefix);
-    currentPrefix = currentBook.prefix;
 
     // Display book metadata
     bookInfo.style.display = "block";
@@ -114,8 +91,8 @@ fileInput.addEventListener("change", async () => {
     placeholder.style.display = "none";
 
     currentReader = createReader({
-      prefix: currentPrefix,
       root: container,
+      provider,
       book,
       render: "scrollSpilt",
       events: {

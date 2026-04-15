@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createReader } from "../src/index.ts";
 import type { EpubBook } from "../src/parser/types.ts";
+import type { FileProvider } from "../src/provider/index.ts";
+import type { EpubServiceWorker } from "../src/provider/server.ts";
 
 const TEST_BOOK: EpubBook = {
   id: "reader-index-book",
@@ -24,22 +26,40 @@ const TEST_BOOK: EpubBook = {
   ],
 };
 
+const TEST_PROVIDER: FileProvider = {
+  getBolbByPath: async () => new Uint8Array(),
+  getTextByPath: async () => "",
+};
+
 let currentReader: ReturnType<typeof createReader> | null = null;
 
 afterEach(() => {
   currentReader?.destroy();
   currentReader = null;
   document.body.innerHTML = "";
+  vi.restoreAllMocks();
 });
 
 describe("createReader", () => {
-  it("returns a direct controller and accepts events in createReader options", async () => {
+  it("auto-registers the book with its id and lets prefix come from the service worker", async () => {
     document.body.innerHTML = `<div id="reader" style="width:320px;height:200px"></div>`;
     const seen: string[] = [];
+    const disposeBook = vi.fn();
+    const addBook = vi.fn(() => ({
+      id: TEST_BOOK.id,
+      dispose: disposeBook,
+    }));
+    const serviceWorker: EpubServiceWorker = {
+      prefix: "/scroll-spilt/",
+      addBook,
+      removeBook: vi.fn(),
+      dispose: vi.fn(),
+    };
 
     currentReader = createReader({
-      prefix: "/scroll-spilt",
       root: "reader",
+      provider: TEST_PROVIDER,
+      serviceWorker,
       book: TEST_BOOK,
       render: "scrollSpilt",
       events: {
@@ -51,6 +71,7 @@ describe("createReader", () => {
 
     await currentReader.ready;
 
+    expect(addBook).toHaveBeenCalledWith(TEST_PROVIDER, TEST_BOOK.id);
     expect(currentReader.render).toBe("scrollSpilt");
     expect(currentReader.book).toBe(TEST_BOOK);
     expect(currentReader.iframe.parentElement?.id).toBe("reader");
@@ -89,5 +110,9 @@ describe("createReader", () => {
       "chapter-1.xhtml",
       "chapter-2.xhtml",
     ]);
+
+    currentReader.destroy();
+    currentReader = null;
+    expect(disposeBook).toHaveBeenCalledOnce();
   });
 });

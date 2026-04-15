@@ -8,7 +8,7 @@
  * Communication protocol (SW ↔ Main thread):
  *   Main → SW:  { type: 'EPUB_SW_ADD_PREFIX',    prefix: string }
  *   Main → SW:  { type: 'EPUB_SW_REMOVE_PREFIX', prefix: string }
- *   SW → Main:  { type: 'EPUB_SW_FETCH', path: string, prefix: string } + MessagePort
+ *   SW → Main:  { type: 'EPUB_SW_FETCH', path: string, prefix: string, bookId: string } + MessagePort
  *   Main → SW (via port): { body: Uint8Array, contentType: string } | { error: string }
  */
 
@@ -55,12 +55,20 @@ self.addEventListener("fetch", (event: FetchEvent) => {
 
   if (!matchedPrefix || !targetClientId) return;
 
-  const epubPath = decodeURIComponent(url.pathname.slice(matchedPrefix.length));
-  event.respondWith(fetchFromClient(targetClientId, epubPath, matchedPrefix));
+  const relativePath = url.pathname.slice(matchedPrefix.length).replace(/^\/+/, "");
+  const [bookIdPart, ...epubParts] = relativePath.split("/");
+  if (!bookIdPart || epubParts.length === 0) {
+    return;
+  }
+
+  const bookId = decodeURIComponent(bookIdPart);
+  const epubPath = decodeURIComponent(epubParts.join("/"));
+  event.respondWith(fetchFromClient(targetClientId, bookId, epubPath, matchedPrefix));
 });
 
 async function fetchFromClient(
   clientId: string,
+  bookId: string,
   epubPath: string,
   prefix: string,
 ): Promise<Response> {
@@ -99,6 +107,6 @@ async function fetchFromClient(
       resolve(new Response(resp.body, { status: 200, headers }));
     };
 
-    client!.postMessage({ type: "EPUB_SW_FETCH", path: epubPath, prefix }, [channel.port2]);
+    client!.postMessage({ type: "EPUB_SW_FETCH", path: epubPath, prefix, bookId }, [channel.port2]);
   });
 }

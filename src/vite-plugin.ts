@@ -2,6 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  DEFAULT_EPUB_SW_PREFIX,
+  EPUB_SW_RUNTIME_CONFIG_KEY,
+  normalizeEpubSwPrefix,
+} from "./provider/runtime.ts";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Find `epub-sw.ts` whether running from `src/` (dev) or `dist/` (packed). */
@@ -23,6 +29,8 @@ export interface EpubSwPluginOptions {
   filename?: string;
   /** ServiceWorker scope. Default: `'/'` */
   scope?: string;
+  /** Intercept prefix used for EPUB resource requests. Default: `'/epubjs-next/'` */
+  prefix?: string;
 }
 
 let cachedSwJs: string | undefined;
@@ -65,6 +73,7 @@ async function compileSw(): Promise<string> {
 export function epubServiceWorker(options: EpubSwPluginOptions = {}) {
   const filename = options.filename ?? "epub-sw.js";
   const scope = options.scope ?? "/";
+  const prefix = normalizeEpubSwPrefix(options.prefix ?? DEFAULT_EPUB_SW_PREFIX);
   const swDevPath = `/${filename}`;
   let basePath = "/";
 
@@ -80,12 +89,17 @@ export function epubServiceWorker(options: EpubSwPluginOptions = {}) {
         basePath === "/" || basePath.endsWith("/")
           ? `${basePath}${filename}`
           : `${basePath}/${filename}`;
+      const runtimeConfig = {
+        prefix,
+        scope,
+        swUrl,
+      };
 
       return [
         {
           tag: "script",
           attrs: { type: "module" },
-          children: `if("serviceWorker"in navigator){navigator.serviceWorker.register(${JSON.stringify(swUrl)},{scope:${JSON.stringify(scope)}})}`,
+          children: `if("serviceWorker"in navigator){globalThis[${JSON.stringify(EPUB_SW_RUNTIME_CONFIG_KEY)}]=${JSON.stringify(runtimeConfig)};navigator.serviceWorker.register(${JSON.stringify(swUrl)},{scope:${JSON.stringify(scope)}}).then(()=>navigator.serviceWorker.ready).then((registration)=>{registration.active?.postMessage({type:"EPUB_SW_ADD_PREFIX",prefix:${JSON.stringify(prefix)}});});}`,
           injectTo: "head-prepend" as const,
         },
       ];

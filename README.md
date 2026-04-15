@@ -4,13 +4,13 @@ A small Vite+ reader playground with browser-based tests.
 
 ## Scroll split reader
 
-`createReader({ prefix, root, book, render: "scrollSpilt" })` selects the scroll split render, mounts a same-sized iframe into `root`, scrolls each spine XHTML inside that iframe, and returns a direct controller object.
+`createReader({ provider, book, root, render: "scrollSpilt" })` selects the scroll split render, auto-detects the EPUB service worker, registers the current book by `EpubBook.id`, and mounts a same-sized iframe into `root`. `prefix` is now optional: when omitted, the reader uses the intercept prefix injected by the Vite plugin.
 
 ```ts
 import { createReader } from "epubjs-next";
 
 const reader = createReader({
-  prefix: "/books/demo",
+  provider,
   root: document.getElementById("reader")!,
   book,
   render: "scrollSpilt",
@@ -28,5 +28,7 @@ await reader.setLocation({
   indexs: [1, 2, 1],
 });
 ```
+
+`prefix` only defines the request namespace intercepted by the service worker so normal application requests are left alone; it is not used to distinguish books. Book identity comes from `EpubBook.id`.
 
 `EpubLocation.html` is the spine item's href. `indexs` is a 1-based element path inside that XHTML document, and it may be omitted (or left empty) to mean the document root, i.e. the same navigation semantic as `[0]`.

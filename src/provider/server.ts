@@ -1,4 +1,9 @@
 import type { FileProvider } from "./index.ts";
+import {
+  DEFAULT_EPUB_SW_PREFIX,
+  getEpubSwRuntimeConfig,
+  normalizeEpubSwPrefix,
+} from "./runtime.ts";
 
 // ── MIME type mapping for common EPUB resources ──────────────────────
 
@@ -54,32 +59,38 @@ export interface EpubServiceWorkerOptions {
 
   /** ServiceWorker scope (defaults to `"/"`). */
   scope?: string;
+
+  /** Intercept prefix used for EPUB resource requests. */
+  prefix?: string;
 }
 
 export interface BookHandle {
-  /** The normalised prefix this book is served under. */
-  readonly prefix: string;
+  /** The logical book identifier used inside the intercept prefix. */
+  readonly id: string;
   /** Unregister this book from the service worker. */
   dispose(): void;
 }
 
 export interface EpubServiceWorker {
+  /** Shared intercept prefix reserved for EPUB resource requests. */
+  readonly prefix: string;
+
   /**
-   * Register a book to be served under the given URL prefix.
+   * Register a book provider under a logical book id.
    *
-   * Requests to `<prefix>/<path>` will be intercepted by the SW and
+   * Requests to `<prefix>/<bookId>/<path>` will be intercepted by the SW and
    * fulfilled by calling `provider.getBolbByPath(path)` on the main thread.
    *
    * @returns A handle to unregister this specific book.
-   * @throws If the prefix is already registered.
+   * @throws If the book id is already registered.
    */
-  addBook(provider: FileProvider, prefix: string): BookHandle;
+  addBook(provider: FileProvider, bookId: string): BookHandle;
 
   /**
-   * Unregister the book served under the given prefix.
-   * No-op if the prefix is not registered.
+   * Unregister the book served under the given id.
+   * No-op if the book id is not registered.
    */
-  removeBook(prefix: string): void;
+  removeBook(bookId: string): void;
 
   /**
    * Dispose the service worker manager: unregister all books and remove
@@ -104,7 +115,15 @@ function waitForActivation(sw: ServiceWorker): Promise<void> {
 }
 
 function normalizePrefix(prefix: string): string {
-  return prefix.endsWith("/") ? prefix : `${prefix}/`;
+  return normalizeEpubSwPrefix(prefix);
+}
+
+function normalizeBookId(bookId: string): string {
+  const normalized = (bookId ?? "").trim();
+  if (!normalized) {
+    throw new Error("Book id is required");
+  }
+  return normalized;
 }
 
 // ── Main API ─────────────────────────────────────────────────────────
@@ -113,7 +132,7 @@ function normalizePrefix(prefix: string): string {
  * Create an EPUB service worker manager.
  *
  * Connects to (or registers) the service worker once, then lets you
- * register multiple books under different URL prefixes via `addBook`.
+ * register multiple books under a shared intercept prefix via `addBook`.
  *
  * @example
  * ```ts
@@ -124,12 +143,12 @@ function normalizePrefix(prefix: string): string {
  * const sw = await createEpubServiceWorker({ swUrl: '/epub-sw.js' });
  *
  * // Register multiple books
- * const book1 = sw.addBook(provider1, '/book-1/');
- * const book2 = sw.addBook(provider2, '/book-2/');
+ * const book1 = sw.addBook(provider1, 'book-1');
+ * const book2 = sw.addBook(provider2, 'book-2');
  *
  * // Unregister a single book
  * book1.dispose();
- * // or: sw.removeBook('/book-2/');
+ * // or: sw.removeBook('book-2');
  *
  * // Dispose everything
  * sw.dispose();
@@ -141,6 +160,11 @@ export async function createEpubServiceWorker(
   if (!navigator.serviceWorker) {
     throw new Error("Service Workers are not supported in this browser");
   }
+
+  const runtimeConfig = getEpubSwRuntimeConfig();
+  const prefix = normalizePrefix(
+    options?.prefix ?? runtimeConfig?.prefix ?? DEFAULT_EPUB_SW_PREFIX,
+  );
 
   let registration: ServiceWorkerRegistration;
 
@@ -157,15 +181,20 @@ export async function createEpubServiceWorker(
     registration = await navigator.serviceWorker.ready;
   }
 
+  registration.active?.postMessage({
+    type: "EPUB_SW_ADD_PREFIX",
+    prefix,
+  });
+
   const books = new Map<string, FileProvider>();
 
-  // Single message handler that routes to the correct book by prefix
+  // Single message handler that routes to the correct book by id
   const onMessage = async (event: MessageEvent) => {
     const data = event.data;
     if (data?.type !== "EPUB_SW_FETCH") return;
 
-    const prefix = data.prefix as string;
-    const provider = books.get(prefix);
+    const bookId = data.bookId as string;
+    const provider = books.get(bookId);
     if (!provider) return;
 
     const port = event.ports[0];
@@ -184,50 +213,34 @@ export async function createEpubServiceWorker(
   navigator.serviceWorker.addEventListener("message", onMessage);
 
   return {
-    addBook(provider: FileProvider, prefix: string): BookHandle {
-      const normalized = normalizePrefix(prefix);
+    prefix,
+
+    addBook(provider: FileProvider, bookId: string): BookHandle {
+      const normalized = normalizeBookId(bookId);
 
       if (books.has(normalized)) {
-        throw new Error(`Prefix already registered: ${normalized}`);
+        throw new Error(`Book already registered: ${normalized}`);
       }
 
       books.set(normalized, provider);
-      registration.active!.postMessage({
-        type: "EPUB_SW_ADD_PREFIX",
-        prefix: normalized,
-      });
 
       return {
-        prefix: normalized,
+        id: normalized,
         dispose() {
           if (!books.has(normalized)) return;
           books.delete(normalized);
-          registration.active?.postMessage({
-            type: "EPUB_SW_REMOVE_PREFIX",
-            prefix: normalized,
-          });
         },
       };
     },
 
-    removeBook(prefix: string): void {
-      const normalized = normalizePrefix(prefix);
+    removeBook(bookId: string): void {
+      const normalized = normalizeBookId(bookId);
       if (!books.has(normalized)) return;
       books.delete(normalized);
-      registration.active?.postMessage({
-        type: "EPUB_SW_REMOVE_PREFIX",
-        prefix: normalized,
-      });
     },
 
     dispose(): void {
       navigator.serviceWorker.removeEventListener("message", onMessage);
-      for (const prefix of books.keys()) {
-        registration.active?.postMessage({
-          type: "EPUB_SW_REMOVE_PREFIX",
-          prefix,
-        });
-      }
       books.clear();
     },
   };
