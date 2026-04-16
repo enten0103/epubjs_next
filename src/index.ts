@@ -12,8 +12,9 @@ import type {
 import { scrollSpiltRender } from "./render/scroll_spilt/render.ts";
 import type { ScrollSpiltRenderResult } from "./render/scroll_spilt/render.ts";
 
-export type { EpubBook } from "./parser/types.ts";
+export type { EpubBook, EpubBookResources } from "./parser/types.ts";
 export type { EpubLocation } from "./render/location.ts";
+export type { Drawer, DrawerRenderResult } from "./render/drawer.ts";
 export type { ScrollSpiltController } from "./render/scroll_spilt/controller.ts";
 export type {
   ScrollSpiltDocumentChangeEvent,
@@ -24,6 +25,7 @@ export type {
   ScrollSpiltRenderContext,
   ScrollSpiltRenderResult,
 } from "./render/scroll_spilt/render.ts";
+export { createDrawer } from "./render/drawer.ts";
 export { useScrollSpiltController } from "./render/scroll_spilt/controller.ts";
 export { scrollSpiltRender } from "./render/scroll_spilt/render.ts";
 

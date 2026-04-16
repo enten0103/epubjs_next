@@ -1,5 +1,6 @@
 import type { EpubBook } from "../../parser/types.ts";
-import { useIframe } from "../iframe.ts";
+import { dirname, resolveEpubPath } from "../../parser/utils.ts";
+import { createDrawer } from "../drawer.ts";
 import type { ScrollSpiltController } from "./controller.ts";
 import { useScrollSpiltController } from "./controller.ts";
 import type { ScrollSpiltEvents } from "./event.ts";
@@ -32,8 +33,6 @@ const getSpineItem = (book: EpubBook, index: number) => {
 
 const normalizeHref = (href: string): string => href.split("#", 1)[0] ?? href;
 
-const normalizePrefix = (prefix: string): string => (prefix.endsWith("/") ? prefix : `${prefix}/`);
-
 const resolveSpineIndex = (book: EpubBook, href: string): number => {
   const normalizedHref = normalizeHref(href);
   const index = book.spine.findIndex((item) => normalizeHref(item.href) === normalizedHref);
@@ -43,28 +42,22 @@ const resolveSpineIndex = (book: EpubBook, href: string): number => {
   return index;
 };
 
-const tryResolveSpineIndex = (book: EpubBook, href: string): number | null => {
-  const normalizedHref = normalizeHref(href);
-  const index = book.spine.findIndex((item) => normalizeHref(item.href) === normalizedHref);
-  return index >= 0 ? index : null;
+const isExternalHref = (href: string): boolean => {
+  return /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith("//");
 };
 
-const getViewportWindow = (doc: Document): Window => {
-  const viewportWindow = doc.defaultView;
-  if (!viewportWindow) {
-    throw new Error("Iframe window is unavailable");
+const resolveDocumentNavigationHref = (currentHref: string, rawHref: string): string | null => {
+  const trimmedHref = rawHref.trim();
+  if (!trimmedHref || isExternalHref(trimmedHref)) {
+    return null;
   }
-  return viewportWindow;
-};
 
-const scrollToTop = (doc: Document) => {
-  getViewportWindow(doc).scrollTo({ top: 0, behavior: "auto" });
-};
+  if (trimmedHref.startsWith("#")) {
+    const currentPath = normalizeHref(currentHref);
+    return trimmedHref.length > 1 ? `${currentPath}${trimmedHref}` : currentPath;
+  }
 
-const scrollToElement = (doc: Document, target: Element) => {
-  const viewportWindow = getViewportWindow(doc);
-  const top = viewportWindow.scrollY + target.getBoundingClientRect().top;
-  viewportWindow.scrollTo({ top, behavior: "auto" });
+  return resolveEpubPath(dirname(normalizeHref(currentHref)), trimmedHref);
 };
 
 export const scrollSpiltRender = (
@@ -73,17 +66,18 @@ export const scrollSpiltRender = (
   book: EpubBook,
   events?: ScrollSpiltEvents,
 ): ScrollSpiltRenderResult => {
-  const { iframe, setSrc } = useIframe(prefix);
+  book.resources = {
+    ...book.resources,
+    prefix,
+  };
+
+  const drawer = createDrawer(book);
   const onDocumentChangeHook = createScrollSpiltDocumentChangeHook(events);
-  const prefixUrl = new URL(normalizePrefix(prefix), window.location.href);
-  iframe.style.display = "block";
-  iframe.style.border = "0";
-  iframe.style.maxWidth = "none";
-  iframe.style.width = `100%`;
-  iframe.style.height = `100%`;
-  root.replaceChildren(iframe);
   let currentSpineIndex = 0;
   let currentDocument: Document | null = null;
+  let currentIframe: HTMLIFrameElement | null = null;
+  let destroyed = false;
+
   const getCurrentHref = (): string => {
     const item = book.spine[currentSpineIndex];
     if (!item) {
@@ -92,174 +86,71 @@ export const scrollSpiltRender = (
     return item.href;
   };
 
-  const extractBookHref = (url: string): string | null => {
-    const resolvedUrl = new URL(url, window.location.href);
-    if (resolvedUrl.origin !== prefixUrl.origin) {
-      return null;
-    }
-    if (!resolvedUrl.pathname.startsWith(prefixUrl.pathname)) {
-      return null;
-    }
-    const relativePath = resolvedUrl.pathname.slice(prefixUrl.pathname.length).replace(/^\/+/, "");
-    if (!relativePath) {
-      return null;
-    }
-    const fragment = resolvedUrl.hash.replace(/^#/, "");
-    return fragment ? `${relativePath}#${fragment}` : relativePath;
-  };
-
-  const syncCurrentDocument = (): Document | null => {
-    const loadedDocument = iframe.contentDocument;
-    if (!loadedDocument) {
-      return null;
-    }
-
-    const previousDocument = currentDocument;
-    currentDocument = loadedDocument;
-    const loadedHref = extractBookHref(iframe.contentWindow?.location.href ?? iframe.src);
-    if (loadedHref) {
-      const nextIndex = tryResolveSpineIndex(book, loadedHref);
-      if (nextIndex !== null) {
-        currentSpineIndex = nextIndex;
-      }
-    }
-    if (previousDocument !== loadedDocument) {
-      onDocumentChangeHook.emit({
-        document: loadedDocument,
-        href: getCurrentHref(),
-        spineIndex: currentSpineIndex,
-      });
-    }
-    return loadedDocument;
-  };
-
-  const navigateToBookHref = async (href: string): Promise<boolean> => {
-    const nextIndex = tryResolveSpineIndex(book, href);
-    if (nextIndex === null) {
-      return false;
-    }
-
-    const [html, fragment] = href.split("#", 2);
-    const doc = await loadHref(html ?? href);
-    if (!fragment) {
-      scrollToTop(doc);
-      return true;
-    }
-
-    const target = doc.getElementById(fragment);
-    if (target) {
-      scrollToElement(doc, target);
-    }
-    return true;
-  };
-
-  // The iframe can navigate by itself when users click links inside EPUB content.
-  // That bypasses the reader's navigation state, so we intercept "normal" left
-  // clicks here and route book-internal links back through navigateToBookHref.
-  // This keeps iframe navigation and reader state (currentSpineIndex/currentDocument)
-  // on the same path, while still leaving modified clicks and non-reader links
-  // to the browser's default behavior.
-  const onDocumentClick = (event: MouseEvent) => {
-    if (
-      event.defaultPrevented ||
-      event.button !== 0 ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.shiftKey ||
-      event.altKey
-    ) {
-      return;
-    }
-
-    const eventTarget = event.target;
-    if (
-      !eventTarget ||
-      typeof eventTarget !== "object" ||
-      !("closest" in eventTarget) ||
-      typeof eventTarget.closest !== "function"
-    ) {
-      return;
-    }
-
-    const anchor = eventTarget.closest("a[href]");
-    if (!anchor || anchor.getAttribute("target") === "_blank" || anchor.hasAttribute("download")) {
-      return;
-    }
-
-    // anchor.href is already resolved by the browser against the current iframe URL.
-    // We convert that absolute URL back into an EPUB-relative href and only handle it
-    // when it still points inside the current book prefix.
-    const resolvedHref =
-      "href" in anchor && typeof anchor.href === "string" ? extractBookHref(anchor.href) : null;
-    if (!resolvedHref) {
-      return;
-    }
-
-    // Prevent the iframe from navigating on its own; from here on the reader owns
-    // the load + state sync + fragment scroll sequence.
-    event.preventDefault();
-    void navigateToBookHref(resolvedHref);
-  };
-
-  // Every loaded XHTML becomes a fresh Document, so the click bridge has to be
-  // reattached after each iframe load.
-  const bindDocumentNavigation = (doc: Document) => {
-    doc.addEventListener("click", onDocumentClick);
-  };
-
-  const onIframeLoad = () => {
-    const loadedDocument = syncCurrentDocument();
-    if (loadedDocument) {
-      bindDocumentNavigation(loadedDocument);
-    }
-  };
-
-  iframe.addEventListener("load", onIframeLoad);
-
   const loadHref = async (href: string): Promise<Document> => {
-    const nextIndex = resolveSpineIndex(book, href);
-    if (currentDocument && currentSpineIndex === nextIndex) {
-      return currentDocument;
+    if (destroyed) {
+      throw new Error("Render is destroyed");
     }
 
-    const targetHref = normalizeHref(href);
-    currentDocument = null;
-    return new Promise<Document>((resolve, reject) => {
-      const cleanup = () => {
-        iframe.removeEventListener("load", onLoad);
-        iframe.removeEventListener("error", onError);
-      };
+    const nextIndex = resolveSpineIndex(book, href);
+    const renderResult = await drawer(root, href);
+    if (destroyed) {
+      renderResult.iframe.remove();
+      throw new Error("Render is destroyed");
+    }
 
-      const onLoad = () => {
-        cleanup();
-        const finalizeLoad = () => {
-          const loadedDocument = syncCurrentDocument();
-          if (!loadedDocument) {
-            reject(new Error(`Loaded spine item has no document: ${targetHref}`));
-            return;
-          }
-          resolve(loadedDocument);
-        };
+    currentSpineIndex = nextIndex;
+    currentDocument = renderResult.document;
+    currentIframe = renderResult.iframe;
+    renderResult.document.addEventListener("click", (event) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
 
-        const viewportWindow = iframe.contentWindow;
-        if (viewportWindow) {
-          viewportWindow.requestAnimationFrame(() => {
-            finalizeLoad();
-          });
-          return;
-        }
-        queueMicrotask(finalizeLoad);
-      };
+      const eventTarget = event.target;
+      if (
+        !eventTarget ||
+        typeof eventTarget !== "object" ||
+        !("closest" in eventTarget) ||
+        typeof eventTarget.closest !== "function"
+      ) {
+        return;
+      }
 
-      const onError = () => {
-        cleanup();
-        reject(new Error(`Failed to load spine item: ${targetHref}`));
-      };
+      const anchor = eventTarget.closest("a[href]");
+      if (
+        !anchor ||
+        anchor.getAttribute("target") === "_blank" ||
+        anchor.hasAttribute("download")
+      ) {
+        return;
+      }
 
-      iframe.addEventListener("load", onLoad);
-      iframe.addEventListener("error", onError);
-      setSrc(targetHref);
+      const rawHref = anchor.getAttribute("href");
+      if (!rawHref) {
+        return;
+      }
+
+      const nextHref = resolveDocumentNavigationHref(renderResult.href, rawHref);
+      if (!nextHref) {
+        return;
+      }
+
+      event.preventDefault();
+      void loadHref(nextHref);
     });
+    onDocumentChangeHook.emit({
+      document: renderResult.document,
+      href: getCurrentHref(),
+      spineIndex: currentSpineIndex,
+    });
+    return renderResult.document;
   };
 
   const loadSpine = async (index: number): Promise<Document> => {
@@ -267,12 +158,19 @@ export const scrollSpiltRender = (
   };
 
   const context: ScrollSpiltRenderContext = {
-    iframe,
+    get iframe() {
+      if (!currentIframe) {
+        throw new Error("Render is not ready yet");
+      }
+      return currentIframe;
+    },
     book,
     ready: loadSpine(0).then(() => undefined),
     destroy() {
-      iframe.removeEventListener("load", onIframeLoad);
-      iframe.remove();
+      destroyed = true;
+      currentDocument = null;
+      currentIframe?.remove();
+      currentIframe = null;
     },
     loadHref,
     loadSpine,
@@ -281,8 +179,7 @@ export const scrollSpiltRender = (
     onDocumentChange: onDocumentChangeHook.on,
   };
 
-  return {
-    ...context,
+  return Object.assign(context, {
     controller: useScrollSpiltController(context),
-  };
+  });
 };

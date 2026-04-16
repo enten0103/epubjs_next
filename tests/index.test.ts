@@ -78,21 +78,18 @@ describe("createReader", () => {
     expect(currentReader.getCurrent().html).toBe("chapter-1.xhtml");
     expect(seen).toEqual(["chapter-1.xhtml"]);
 
-    await currentReader.setLocation({
-      html: "chapter-2.xhtml",
-    });
+    const firstIframe = currentReader.iframe;
+
+    await currentReader.next();
 
     expect(currentReader.getCurrentSpineIndex()).toBe(1);
-    expect(currentReader.iframe.contentWindow?.scrollY ?? Number.NaN).toBe(0);
+    expect(currentReader.iframe).not.toBe(firstIframe);
     expect(seen).toEqual(["chapter-1.xhtml", "chapter-2.xhtml"]);
 
-    await currentReader.setLocation({
-      html: "chapter-1.xhtml",
-      indexs: [0],
-    });
+    await currentReader.prev();
 
     expect(currentReader.getCurrentSpineIndex()).toBe(0);
-    expect(currentReader.iframe.contentWindow?.scrollY ?? Number.NaN).toBe(0);
+    expect(currentReader.iframe.contentDocument?.getElementById("chapter-1-root")).toBeTruthy();
     expect(seen).toEqual(["chapter-1.xhtml", "chapter-2.xhtml", "chapter-1.xhtml"]);
 
     await currentReader.setLocation({

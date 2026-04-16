@@ -7,8 +7,6 @@ export interface ScrollSpiltController extends Controller {
   prev: () => Promise<void>;
 }
 
-const SCROLL_EPSILON = 1;
-
 const getBodyElement = (doc: Document): Element | null => {
   if (doc.body) {
     return doc.body;
@@ -30,51 +28,8 @@ const getViewportWindow = (doc: Document): Window => {
   return viewportWindow;
 };
 
-const getMaxScrollTop = (doc: Document): number => {
-  const root = getContentRoot(doc);
-  const viewportWindow = getViewportWindow(doc);
-  const contentHeight = Math.max(
-    doc.documentElement.scrollHeight,
-    doc.documentElement.getBoundingClientRect().height,
-    root.getBoundingClientRect().height,
-  );
-  return Math.max(0, contentHeight - viewportWindow.innerHeight);
-};
-
 const scrollToTop = (doc: Document) => {
   getViewportWindow(doc).scrollTo({ top: 0, behavior: "auto" });
-};
-
-const scrollToBottom = (doc: Document) => {
-  getViewportWindow(doc).scrollTo({ top: getMaxScrollTop(doc), behavior: "auto" });
-};
-
-const scrollByViewport = (doc: Document, direction: 1 | -1): boolean => {
-  const viewportWindow = getViewportWindow(doc);
-  const currentTop = viewportWindow.scrollY;
-  const viewportHeight = Math.max(viewportWindow.innerHeight, 1);
-  const maxScrollTop = getMaxScrollTop(doc);
-
-  if (direction > 0) {
-    if (currentTop >= maxScrollTop - SCROLL_EPSILON) {
-      return false;
-    }
-    viewportWindow.scrollTo({
-      top: Math.min(maxScrollTop, currentTop + viewportHeight),
-      behavior: "auto",
-    });
-    return true;
-  }
-
-  if (currentTop <= SCROLL_EPSILON) {
-    return false;
-  }
-
-  viewportWindow.scrollTo({
-    top: Math.max(0, currentTop - viewportHeight),
-    behavior: "auto",
-  });
-  return true;
 };
 
 const resolveElementByPath = (root: Element, indexs: readonly number[]): Element | null => {
@@ -163,15 +118,6 @@ const scrollToElement = (doc: Document, target: Element) => {
   viewportWindow.scrollTo({ top, behavior: "auto" });
 };
 
-const ensureDocument = async (context: ScrollSpiltRenderContext): Promise<Document> => {
-  await context.ready;
-  const currentDocument = context.getCurrentDocument();
-  if (currentDocument) {
-    return currentDocument;
-  }
-  return context.loadSpine(context.getCurrentSpineIndex());
-};
-
 const buildCurrentLocation = (
   context: ScrollSpiltRenderContext,
   currentDocument: Document | null,
@@ -217,32 +163,20 @@ export const useScrollSpiltController = (
   },
 
   async next() {
-    const doc = await ensureDocument(context);
-    if (scrollByViewport(doc, 1)) {
-      return;
-    }
-
     const nextIndex = context.getCurrentSpineIndex() + 1;
     if (nextIndex >= context.book.spine.length) {
       return;
     }
 
-    const nextDocument = await context.loadSpine(nextIndex);
-    scrollToTop(nextDocument);
+    await context.loadSpine(nextIndex);
   },
 
   async prev() {
-    const doc = await ensureDocument(context);
-    if (scrollByViewport(doc, -1)) {
-      return;
-    }
-
     const prevIndex = context.getCurrentSpineIndex() - 1;
     if (prevIndex < 0) {
       return;
     }
 
-    const prevDocument = await context.loadSpine(prevIndex);
-    scrollToBottom(prevDocument);
+    await context.loadSpine(prevIndex);
   },
 });
