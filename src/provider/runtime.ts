@@ -1,3 +1,5 @@
+import { buildBookScopedPrefix, normalizeUrlPrefixOrDefault } from "../utils/url.ts";
+
 export const EPUB_SW_RUNTIME_CONFIG_KEY = "__EPUBJS_NEXT_SW__";
 
 export const DEFAULT_EPUB_SW_PREFIX = "/epubjs-next/";
@@ -13,17 +15,11 @@ type EpubSwRuntimeGlobal = typeof globalThis & {
 };
 
 export function normalizeEpubSwPrefix(prefix: string): string {
-  const trimmed = prefix.trim();
-  if (!trimmed) {
-    return DEFAULT_EPUB_SW_PREFIX;
-  }
-
-  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withLeadingSlash.endsWith("/") ? withLeadingSlash : `${withLeadingSlash}/`;
+  return normalizeUrlPrefixOrDefault(prefix, DEFAULT_EPUB_SW_PREFIX);
 }
 
 export function buildEpubBookPrefix(prefix: string, bookId: string): string {
-  return `${normalizeEpubSwPrefix(prefix)}${encodeURIComponent(bookId)}`;
+  return buildBookScopedPrefix(prefix, bookId);
 }
 
 export function getEpubSwRuntimeConfig(): EpubSwRuntimeConfig | undefined {

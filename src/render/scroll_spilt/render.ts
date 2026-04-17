@@ -1,6 +1,6 @@
 import type { EpubBook } from "../../parser/types.ts";
-import { dirname, resolveEpubPath } from "../../parser/utils.ts";
 import { createDrawer } from "../drawer.ts";
+import { resolveDocumentNavigationHref, stripHrefFragment } from "../../utils/url.ts";
 import type { ScrollSpiltController } from "./controller.ts";
 import { useScrollSpiltController } from "./controller.ts";
 import type { ScrollSpiltEvents } from "./event.ts";
@@ -31,33 +31,13 @@ const getSpineItem = (book: EpubBook, index: number) => {
   return item;
 };
 
-const normalizeHref = (href: string): string => href.split("#", 1)[0] ?? href;
-
 const resolveSpineIndex = (book: EpubBook, href: string): number => {
-  const normalizedHref = normalizeHref(href);
-  const index = book.spine.findIndex((item) => normalizeHref(item.href) === normalizedHref);
+  const normalizedHref = stripHrefFragment(href);
+  const index = book.spine.findIndex((item) => stripHrefFragment(item.href) === normalizedHref);
   if (index < 0) {
     throw new Error(`Cannot find html in spine: ${href}`);
   }
   return index;
-};
-
-const isExternalHref = (href: string): boolean => {
-  return /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith("//");
-};
-
-const resolveDocumentNavigationHref = (currentHref: string, rawHref: string): string | null => {
-  const trimmedHref = rawHref.trim();
-  if (!trimmedHref || isExternalHref(trimmedHref)) {
-    return null;
-  }
-
-  if (trimmedHref.startsWith("#")) {
-    const currentPath = normalizeHref(currentHref);
-    return trimmedHref.length > 1 ? `${currentPath}${trimmedHref}` : currentPath;
-  }
-
-  return resolveEpubPath(dirname(normalizeHref(currentHref)), trimmedHref);
 };
 
 export const scrollSpiltRender = (

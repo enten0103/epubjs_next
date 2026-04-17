@@ -1,5 +1,11 @@
 import type { EpubBook } from "../parser/types.ts";
-import { dirname } from "../parser/utils.ts";
+import {
+  getHrefFragment,
+  normalizeUrlPrefix,
+  resolveBookResourceUrl,
+  resolveDocumentBaseUrl,
+  stripHrefFragment,
+} from "../utils/url.ts";
 
 export type DrawerRenderResult = {
   iframe: HTMLIFrameElement;
@@ -9,42 +15,12 @@ export type DrawerRenderResult = {
 
 export type Drawer = (root: HTMLElement, href: string) => Promise<DrawerRenderResult>;
 
-const normalizeHref = (href: string): string => href.split("#", 1)[0] ?? href;
-
-const getFragment = (href: string): string | null => {
-  const fragment = href.split("#", 2)[1];
-  return fragment && fragment.length > 0 ? fragment : null;
-};
-
-const normalizePrefix = (prefix?: string): string | null => {
-  const trimmed = prefix?.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withLeadingSlash.endsWith("/") ? withLeadingSlash : `${withLeadingSlash}/`;
-};
-
 const requireBookPrefix = (book: EpubBook): string => {
-  const prefix = normalizePrefix(book.resources?.prefix);
+  const prefix = normalizeUrlPrefix(book.resources?.prefix);
   if (!prefix) {
     throw new Error("createDrawer requires book.resources.prefix");
   }
   return prefix;
-};
-
-const resolveBookRootUrl = (book: EpubBook): URL => {
-  return new URL(requireBookPrefix(book), window.location.href);
-};
-
-const resolveBookResourceUrl = (book: EpubBook, href: string): string => {
-  const normalizedHref = normalizeHref(href).replace(/^\/+/, "");
-  return new URL(normalizedHref, resolveBookRootUrl(book)).toString();
-};
-
-const resolveDocumentBaseUrl = (book: EpubBook, href: string): string => {
-  return new URL(dirname(normalizeHref(href)) || ".", resolveBookRootUrl(book)).toString();
 };
 
 const createDrawerIframe = (): HTMLIFrameElement => {
@@ -102,7 +78,7 @@ const scrollToElement = (doc: Document, target: Element) => {
 };
 
 const scrollToFragment = (doc: Document, href: string) => {
-  const fragment = getFragment(href);
+  const fragment = getHrefFragment(href);
   if (!fragment) {
     return;
   }
@@ -154,9 +130,9 @@ const waitForIframeLoad = async (
 };
 
 const loadXhtml = async (book: EpubBook, href: string): Promise<string> => {
-  const normalizedHref = normalizeHref(href);
-  requireBookPrefix(book);
-  const response = await fetch(resolveBookResourceUrl(book, normalizedHref));
+  const prefix = requireBookPrefix(book);
+  const normalizedHref = stripHrefFragment(href);
+  const response = await fetch(resolveBookResourceUrl(prefix, normalizedHref));
   if (!response.ok) {
     throw new Error(
       `Failed to load xhtml ${normalizedHref}: ${response.status} ${response.statusText}`,
@@ -167,13 +143,14 @@ const loadXhtml = async (book: EpubBook, href: string): Promise<string> => {
 
 export const createDrawer = (book: EpubBook): Drawer => {
   const drawer: Drawer = async (root, href) => {
-    const normalizedHref = normalizeHref(href);
+    const prefix = requireBookPrefix(book);
+    const normalizedHref = stripHrefFragment(href);
     const xhtml = await loadXhtml(book, normalizedHref);
     const iframe = createDrawerIframe();
     root.replaceChildren(iframe);
 
     const doc = await waitForIframeLoad(iframe, () => {
-      iframe.srcdoc = buildSrcdoc(xhtml, resolveDocumentBaseUrl(book, normalizedHref));
+      iframe.srcdoc = buildSrcdoc(xhtml, resolveDocumentBaseUrl(prefix, normalizedHref));
     });
 
     scrollToFragment(doc, href);

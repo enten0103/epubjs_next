@@ -114,10 +114,6 @@ function waitForActivation(sw: ServiceWorker): Promise<void> {
   });
 }
 
-function normalizePrefix(prefix: string): string {
-  return normalizeEpubSwPrefix(prefix);
-}
-
 function normalizeBookId(bookId: string): string {
   const normalized = (bookId ?? "").trim();
   if (!normalized) {
@@ -162,7 +158,7 @@ export async function createEpubServiceWorker(
   }
 
   const runtimeConfig = getEpubSwRuntimeConfig();
-  const prefix = normalizePrefix(
+  const prefix = normalizeEpubSwPrefix(
     options?.prefix ?? runtimeConfig?.prefix ?? DEFAULT_EPUB_SW_PREFIX,
   );
 
