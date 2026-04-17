@@ -3,7 +3,6 @@ import {
   getHrefFragment,
   normalizeUrlPrefix,
   resolveBookResourceUrl,
-  resolveDocumentBaseUrl,
   stripHrefFragment,
 } from "../utils/url.ts";
 
@@ -34,35 +33,6 @@ const createDrawerIframe = (): HTMLIFrameElement => {
   return iframe;
 };
 
-const ensureHead = (doc: Document): HTMLHeadElement => {
-  if (doc.head) {
-    return doc.head;
-  }
-
-  const head = doc.createElement("head");
-  const html = doc.documentElement;
-  if (html.firstChild) {
-    html.insertBefore(head, html.firstChild);
-  } else {
-    html.appendChild(head);
-  }
-  return head;
-};
-
-const buildSrcdoc = (xhtml: string, baseUrl: string): string => {
-  const doc = new DOMParser().parseFromString(xhtml, "text/html");
-  const head = ensureHead(doc);
-  const existingBase = head.querySelector("base");
-  if (existingBase) {
-    existingBase.remove();
-  }
-
-  const base = doc.createElement("base");
-  base.setAttribute("href", baseUrl);
-  head.prepend(base);
-  return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-};
-
 const getViewportWindow = (doc: Document): Window => {
   const viewportWindow = doc.defaultView;
   if (!viewportWindow) {
@@ -87,6 +57,12 @@ const scrollToFragment = (doc: Document, href: string) => {
   if (target) {
     scrollToElement(doc, target);
   }
+};
+
+const buildIframeSrc = (prefix: string, href: string): string => {
+  const resourceUrl = resolveBookResourceUrl(prefix, href);
+  const fragment = getHrefFragment(href);
+  return fragment ? `${resourceUrl}#${fragment}` : resourceUrl;
 };
 
 const waitForIframeLoad = async (
@@ -129,28 +105,15 @@ const waitForIframeLoad = async (
   });
 };
 
-const loadXhtml = async (book: EpubBook, href: string): Promise<string> => {
-  const prefix = requireBookPrefix(book);
-  const normalizedHref = stripHrefFragment(href);
-  const response = await fetch(resolveBookResourceUrl(prefix, normalizedHref));
-  if (!response.ok) {
-    throw new Error(
-      `Failed to load xhtml ${normalizedHref}: ${response.status} ${response.statusText}`,
-    );
-  }
-  return response.text();
-};
-
 export const createDrawer = (book: EpubBook): Drawer => {
   const drawer: Drawer = async (root, href) => {
     const prefix = requireBookPrefix(book);
     const normalizedHref = stripHrefFragment(href);
-    const xhtml = await loadXhtml(book, normalizedHref);
     const iframe = createDrawerIframe();
     root.replaceChildren(iframe);
 
     const doc = await waitForIframeLoad(iframe, () => {
-      iframe.srcdoc = buildSrcdoc(xhtml, resolveDocumentBaseUrl(prefix, normalizedHref));
+      iframe.src = buildIframeSrc(prefix, href);
     });
 
     scrollToFragment(doc, href);

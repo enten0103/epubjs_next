@@ -176,21 +176,3 @@ export function resolveBookResourceUrl(
   const normalizedHref = stripHrefFragment(href).replace(/^\/+/, "");
   return new URL(normalizedHref, resolveBookRootUrl(prefix, baseUrl)).toString();
 }
-
-/**
- * Resolve the `<base href>` value injected into rendered XHTML documents.
- *
- * The base URL points at the current document directory so relative `<img>`,
- * `<link>`, and `<a>` references inside the XHTML continue to work once the
- * content is rendered into an iframe via `srcdoc`.
- */
-export function resolveDocumentBaseUrl(
-  prefix: string,
-  href: string,
-  baseUrl?: string | URL,
-): string {
-  return new URL(
-    dirname(stripHrefFragment(href)) || ".",
-    resolveBookRootUrl(prefix, baseUrl),
-  ).toString();
-}

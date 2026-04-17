@@ -37,7 +37,7 @@ await reader.setLocation({
 
 `createDrawer(book)` returns a drawer function that accepts a root element and an XHTML href. Each call recreates the iframe under that root and renders the requested XHTML into the new iframe.
 
-`createDrawer` resolves the XHTML by requesting `book.resources.prefix + href`, so the book must already have a render prefix configured (for example through the service-worker reader flow, or by setting `book.resources.prefix` yourself).
+`createDrawer` loads the XHTML by navigating the iframe `src` to `book.resources.prefix + href`, so the book must already have a render prefix configured (for example through the service-worker reader flow, or by setting `book.resources.prefix` yourself).
 
 ```ts
 import { createDrawer } from "epubjs-next";

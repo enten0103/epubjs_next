@@ -7,7 +7,6 @@ import {
   normalizeUrlPrefix,
   normalizeUrlPrefixOrDefault,
   resolveBookResourceUrl,
-  resolveDocumentBaseUrl,
   resolveDocumentNavigationHref,
   resolveBookRootUrl,
   stripHrefFragment,
@@ -92,11 +91,5 @@ describe("prefixed resource urls", () => {
         "https://reader.test/app/",
       ),
     ).toBe("https://reader.test/reader/book-1/Text/chapter-1.xhtml");
-  });
-
-  it("builds the document base url for relative assets inside srcdoc", () => {
-    expect(
-      resolveDocumentBaseUrl("/reader/book-1/", "Text/chapter-1.xhtml", "https://reader.test/app/"),
-    ).toBe("https://reader.test/reader/book-1/Text/");
   });
 });

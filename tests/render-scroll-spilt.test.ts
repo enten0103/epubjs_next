@@ -4,6 +4,7 @@ import type { EpubBook } from "../src/parser/types.ts";
 import { createDrawer } from "../src/render/drawer.ts";
 import type { ScrollSpiltDocumentChangeEvent } from "../src/render/scroll_spilt/event.ts";
 import { scrollSpiltRender } from "../src/render/scroll_spilt/render.ts";
+import { resolveBookResourceUrl } from "../src/utils/url.ts";
 
 const TEST_PREFIX = "/scroll-spilt";
 
@@ -75,7 +76,7 @@ describe("createDrawer", () => {
     );
   });
 
-  it("renders a same-sized iframe and redraws the requested xhtml", async () => {
+  it("renders a same-sized iframe and redraws by navigating iframe src", async () => {
     const root = createRoot();
     const drawer = createDrawer(TEST_BOOK);
 
@@ -86,6 +87,9 @@ describe("createDrawer", () => {
     expect(firstDraw.iframe).not.toBe(secondDraw.iframe);
     expect(secondDraw.iframe.style.width).toBe("100%");
     expect(secondDraw.iframe.style.height).toBe("100%");
+    expect(secondDraw.iframe.src).toBe(
+      `${resolveBookResourceUrl(TEST_PREFIX, "chapter-2.xhtml")}#chapter-2-target`,
+    );
     expect(secondDraw.document.getElementById("chapter-2-root")).toBeTruthy();
     expect(
       secondDraw.document.getElementById("chapter-2-target")?.getBoundingClientRect().top ??
