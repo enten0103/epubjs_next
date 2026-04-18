@@ -28,6 +28,7 @@
     "build": "vp dev",
     "dev": "vp pack --watch",
     "test": "vp test",
+    "fmt": "vp fmt",
     "check": "vp check",
     "prepublishOnly": "vp run build",
     "prepare": "vp config",
