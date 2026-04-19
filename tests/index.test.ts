@@ -50,7 +50,7 @@ describe("createReader", () => {
       dispose: disposeBook,
     }));
     const serviceWorker: EpubServiceWorker = {
-      prefix: "/scroll-spilt/",
+      prefix: "/paper-fixtures/",
       addBook,
       removeBook: vi.fn(),
       dispose: vi.fn(),
@@ -61,7 +61,10 @@ describe("createReader", () => {
       provider: TEST_PROVIDER,
       serviceWorker,
       book: TEST_BOOK,
-      render: "scrollSpilt",
+      render: "drawer",
+      paper: {
+        mode: "paginated",
+      },
       events: {
         onDocumentChange(event) {
           seen.push(event.href);
@@ -72,41 +75,72 @@ describe("createReader", () => {
     await currentReader.ready;
 
     expect(addBook).toHaveBeenCalledWith(TEST_PROVIDER, TEST_BOOK.id);
-    expect(currentReader.render).toBe("scrollSpilt");
+    expect(currentReader.render).toBe("drawer");
     expect(currentReader.book).toBe(TEST_BOOK);
+    expect(currentReader.paper.iframe.parentElement?.id).toBe("reader");
     expect(currentReader.iframe.parentElement?.id).toBe("reader");
     expect(currentReader.getCurrent().html).toBe("chapter-1.xhtml");
+    expect(currentReader.getCurrent().position).toMatchObject({
+      mode: "paginated",
+      pageIndex: 0,
+    });
     expect(seen).toEqual(["chapter-1.xhtml"]);
 
-    const firstIframe = currentReader.iframe;
+    const stableIframe = currentReader.iframe;
+
+    await currentReader.next();
+
+    expect(currentReader.getCurrentSpineIndex()).toBe(0);
+    expect(currentReader.iframe).toBe(stableIframe);
+    expect(currentReader.getCurrent().position).toMatchObject({
+      mode: "paginated",
+      pageIndex: 1,
+    });
+    expect(seen).toEqual(["chapter-1.xhtml"]);
 
     await currentReader.next();
 
     expect(currentReader.getCurrentSpineIndex()).toBe(1);
-    expect(currentReader.iframe).not.toBe(firstIframe);
+    expect(currentReader.iframe).toBe(stableIframe);
+    expect(currentReader.iframe.contentDocument?.getElementById("chapter-2-root")).toBeTruthy();
+    expect(seen).toEqual(["chapter-1.xhtml", "chapter-2.xhtml"]);
+
+    await currentReader.setLocation({
+      html: "chapter-2.xhtml",
+      fragment: "chapter-2-target",
+    });
+
+    const target = currentReader.iframe.contentDocument?.getElementById("chapter-2-target");
+    expect(target).toBeTruthy();
+    expect(target?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY).toBeLessThan(40);
+    expect(currentReader.getCurrent()).toMatchObject({
+      html: "chapter-2.xhtml",
+      position: {
+        mode: "paginated",
+        pageIndex: 1,
+      },
+    });
+    expect(seen).toEqual(["chapter-1.xhtml", "chapter-2.xhtml"]);
+
+    await currentReader.prev();
+
+    expect(currentReader.getCurrentSpineIndex()).toBe(1);
+    expect(currentReader.iframe).toBe(stableIframe);
+    expect(currentReader.getCurrent().position).toMatchObject({
+      mode: "paginated",
+      pageIndex: 0,
+    });
     expect(seen).toEqual(["chapter-1.xhtml", "chapter-2.xhtml"]);
 
     await currentReader.prev();
 
     expect(currentReader.getCurrentSpineIndex()).toBe(0);
-    expect(currentReader.iframe.contentDocument?.getElementById("chapter-1-root")).toBeTruthy();
+    expect(currentReader.iframe).toBe(stableIframe);
+    expect(currentReader.getCurrent().position).toMatchObject({
+      mode: "paginated",
+      pageIndex: 1,
+    });
     expect(seen).toEqual(["chapter-1.xhtml", "chapter-2.xhtml", "chapter-1.xhtml"]);
-
-    await currentReader.setLocation({
-      html: "chapter-2.xhtml",
-      indexs: [1, 2, 1],
-    });
-
-    expect(currentReader.getCurrent()).toEqual({
-      html: "chapter-2.xhtml",
-      indexs: [1, 2, 1],
-    });
-    expect(seen).toEqual([
-      "chapter-1.xhtml",
-      "chapter-2.xhtml",
-      "chapter-1.xhtml",
-      "chapter-2.xhtml",
-    ]);
 
     currentReader.destroy();
     currentReader = null;

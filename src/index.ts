@@ -3,35 +3,42 @@ import type { FileProvider } from "./provider/index.ts";
 import { createEpubServiceWorker } from "./provider/server.ts";
 import type { BookHandle, EpubServiceWorker } from "./provider/server.ts";
 import { buildEpubBookPrefix } from "./provider/runtime.ts";
-import type { ScrollSpiltController } from "./render/scroll_spilt/controller.ts";
+import type { DrawerController } from "./render/controller.ts";
+import type { CreatePaperOptions, Paper } from "./render/paper.ts";
 import type {
-  ScrollSpiltDocumentChangeEvent,
-  ScrollSpiltDocumentChangeListener,
-  ScrollSpiltEvents,
-} from "./render/scroll_spilt/event.ts";
-import { scrollSpiltRender } from "./render/scroll_spilt/render.ts";
-import type { ScrollSpiltRenderResult } from "./render/scroll_spilt/render.ts";
+  DrawerDocumentChangeEvent,
+  DrawerDocumentChangeListener,
+  DrawerEvents,
+} from "./render/event.ts";
+import { drawerRender } from "./render/render.ts";
+import type { DrawerReaderRenderResult } from "./render/render.ts";
 
 export type { EpubBook, EpubBookResources } from "./parser/types.ts";
-export type { EpubLocation } from "./render/location.ts";
+export type {
+  EpubLocation,
+  EpubLocationPosition,
+  PaginatedLocationPosition,
+  PaperMode,
+  ScrollLocationPosition,
+} from "./render/location.ts";
 export type { Drawer, DrawerRenderResult } from "./render/drawer.ts";
-export type { ScrollSpiltController } from "./render/scroll_spilt/controller.ts";
+export type { DrawerController } from "./render/controller.ts";
+export type { CreatePaperOptions, Paper, PaperRenderResult } from "./render/paper.ts";
 export type {
-  ScrollSpiltDocumentChangeEvent,
-  ScrollSpiltDocumentChangeListener,
-  ScrollSpiltEvents,
-} from "./render/scroll_spilt/event.ts";
-export type {
-  ScrollSpiltRenderContext,
-  ScrollSpiltRenderResult,
-} from "./render/scroll_spilt/render.ts";
+  DrawerDocumentChangeEvent,
+  DrawerDocumentChangeListener,
+  DrawerEvents,
+} from "./render/event.ts";
+export type { DrawerReaderRenderContext, DrawerReaderRenderResult } from "./render/render.ts";
 export { createDrawer } from "./render/drawer.ts";
-export { useScrollSpiltController } from "./render/scroll_spilt/controller.ts";
-export { scrollSpiltRender } from "./render/scroll_spilt/render.ts";
+export { getCurrentLocation } from "./render/location.ts";
+export { useDrawerController } from "./render/controller.ts";
+export { createPaper } from "./render/paper.ts";
+export { drawerRender } from "./render/render.ts";
 
 export type ReaderRoot = string | HTMLElement;
 
-export type ReaderRender = "scrollSpilt";
+export type ReaderRender = "drawer";
 
 export type CreateReaderOptions = {
   prefix?: string;
@@ -40,22 +47,25 @@ export type CreateReaderOptions = {
   root: ReaderRoot;
   book: EpubBook;
   render: ReaderRender;
+  paper?: CreatePaperOptions;
   events?: ReaderEvents;
 };
 
-export type ReaderDocumentChangeEvent = ScrollSpiltDocumentChangeEvent;
-export type ReaderDocumentChangeListener = ScrollSpiltDocumentChangeListener;
-export type ReaderEvents = ScrollSpiltEvents;
+export type ReaderDocumentChangeEvent = DrawerDocumentChangeEvent;
+export type ReaderDocumentChangeListener = DrawerDocumentChangeListener;
+export type ReaderEvents = DrawerEvents;
 
-export type ScrollSpiltReader = {
-  render: "scrollSpilt";
-} & Omit<ScrollSpiltRenderResult, "controller"> &
-  ScrollSpiltController;
+export type DrawerReader = {
+  render: "drawer";
+} & Omit<DrawerReaderRenderResult, "controller" | "loadLocation"> &
+  DrawerController & {
+    paper: Paper;
+  };
 
-export type Reader = ScrollSpiltReader;
+export type Reader = DrawerReader;
 
-type ScrollSpiltReaderRuntime = {
-  renderResult: ScrollSpiltRenderResult;
+type DrawerReaderRuntime = {
+  renderResult: DrawerReaderRenderResult;
   bookHandle?: BookHandle;
 };
 
@@ -117,13 +127,13 @@ const resolveRenderPrefix = async (
   };
 };
 
-const createScrollSpiltReader = (options: CreateReaderOptions): ScrollSpiltReader => {
+const createDrawerReader = (options: CreateReaderOptions): DrawerReader => {
   const root = resolveRoot(options.root);
-  let runtime: ScrollSpiltReaderRuntime | undefined;
-  let setupPromise: Promise<ScrollSpiltReaderRuntime> | undefined;
+  let runtime: DrawerReaderRuntime | undefined;
+  let setupPromise: Promise<DrawerReaderRuntime> | undefined;
   let destroyed = false;
 
-  const destroyRuntime = (value: ScrollSpiltReaderRuntime) => {
+  const destroyRuntime = (value: DrawerReaderRuntime) => {
     if (destroyed) {
       return;
     }
@@ -132,7 +142,7 @@ const createScrollSpiltReader = (options: CreateReaderOptions): ScrollSpiltReade
     value.bookHandle?.dispose();
   };
 
-  const ensureRuntime = async (): Promise<ScrollSpiltReaderRuntime> => {
+  const ensureRuntime = async (): Promise<DrawerReaderRuntime> => {
     if (runtime) {
       return runtime;
     }
@@ -142,8 +152,14 @@ const createScrollSpiltReader = (options: CreateReaderOptions): ScrollSpiltReade
 
     setupPromise = (async () => {
       const { renderPrefix, bookHandle } = await resolveRenderPrefix(options);
-      const renderResult = scrollSpiltRender(renderPrefix, root, options.book, options.events);
-      const nextRuntime: ScrollSpiltReaderRuntime = {
+      const renderResult = drawerRender(
+        renderPrefix,
+        root,
+        options.book,
+        options.paper,
+        options.events,
+      );
+      const nextRuntime: DrawerReaderRuntime = {
         renderResult,
         bookHandle,
       };
@@ -160,7 +176,7 @@ const createScrollSpiltReader = (options: CreateReaderOptions): ScrollSpiltReade
     return setupPromise;
   };
 
-  const requireRuntime = (): ScrollSpiltReaderRuntime => {
+  const requireRuntime = (): DrawerReaderRuntime => {
     if (!runtime) {
       throw new Error("Reader is not ready yet");
     }
@@ -168,8 +184,11 @@ const createScrollSpiltReader = (options: CreateReaderOptions): ScrollSpiltReade
   };
 
   return {
-    render: "scrollSpilt",
+    render: "drawer",
     book: options.book,
+    get paper() {
+      return requireRuntime().renderResult.paper;
+    },
     get iframe() {
       return requireRuntime().renderResult.iframe;
     },
@@ -221,8 +240,8 @@ const createScrollSpiltReader = (options: CreateReaderOptions): ScrollSpiltReade
 
 export const createReader = (options: CreateReaderOptions): Reader => {
   switch (options.render) {
-    case "scrollSpilt":
-      return createScrollSpiltReader(options);
+    case "drawer":
+      return createDrawerReader(options);
     default:
       throw new Error("unsupported render");
   }

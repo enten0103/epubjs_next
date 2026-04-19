@@ -94,7 +94,10 @@ fileInput.addEventListener("change", async () => {
       root: container,
       provider,
       book,
-      render: "scrollSpilt",
+      render: "drawer",
+      paper: {
+        mode: "paginated",
+      },
       events: {
         onDocumentChange() {
           updateXhtmlButtons();
@@ -112,32 +115,6 @@ fileInput.addEventListener("change", async () => {
   }
 });
 
-function getContentRoot(doc: Document): Element {
-  return (
-    doc.body ??
-    Array.from(doc.getElementsByTagName("*")).find((element) => element.localName === "body") ??
-    doc.documentElement
-  );
-}
-
-function buildElementPath(root: Element, target: Element): number[] {
-  const path: number[] = [];
-  let current: Element | null = target;
-  while (current && current !== root) {
-    const ancestor: Element | null = current.parentElement;
-    if (!ancestor) {
-      return [];
-    }
-    const index = Array.from(ancestor.children).indexOf(current);
-    if (index < 0) {
-      return [];
-    }
-    path.unshift(index + 1);
-    current = ancestor;
-  }
-  return current === root ? path : [];
-}
-
 async function navigateTo(href: string) {
   if (!currentReader) {
     return;
@@ -146,22 +123,7 @@ async function navigateTo(href: string) {
   const [html, fragment] = href.split("#", 2);
   await currentReader.setLocation({
     html,
-  });
-
-  if (!fragment) {
-    updateXhtmlButtons();
-    return;
-  }
-
-  const doc = currentReader.getCurrentDocument();
-  const target = doc?.getElementById(fragment);
-  if (!doc || !target) {
-    return;
-  }
-
-  await currentReader.setLocation({
-    html,
-    indexs: buildElementPath(getContentRoot(doc), target),
+    fragment: fragment || undefined,
   });
   updateXhtmlButtons();
 }

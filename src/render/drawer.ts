@@ -1,18 +1,23 @@
 import type { EpubBook } from "../parser/types.ts";
-import {
-  getHrefFragment,
-  normalizeUrlPrefix,
-  resolveBookResourceUrl,
-  stripHrefFragment,
-} from "../utils/url.ts";
+import { normalizeUrlPrefix, resolveBookResourceUrl, stripHrefFragment } from "../utils/url.ts";
+import type { EpubLocation } from "./location.ts";
+import { getCurrentLocation, renderLocation } from "./location.ts";
+import type { Paper } from "./paper.ts";
+
+const LOCATION_MODE_PARAM = "__epubjs_mode";
+const LOCATION_SCROLL_PARAM = "__epubjs_scroll";
+const LOCATION_PAGE_PARAM = "__epubjs_page";
+const LOCATION_PATH_PARAM = "__epubjs_path";
+const LOCATION_FRAGMENT_PARAM = "__epubjs_fragment";
 
 export type DrawerRenderResult = {
+  paper: Paper;
   iframe: HTMLIFrameElement;
   document: Document;
   href: string;
 };
 
-export type Drawer = (root: HTMLElement, href: string) => Promise<DrawerRenderResult>;
+export type Drawer = (paper: Paper, location: EpubLocation) => Promise<DrawerRenderResult>;
 
 const requireBookPrefix = (book: EpubBook): string => {
   const prefix = normalizeUrlPrefix(book.resources?.prefix);
@@ -22,105 +27,104 @@ const requireBookPrefix = (book: EpubBook): string => {
   return prefix;
 };
 
-const createDrawerIframe = (): HTMLIFrameElement => {
-  const iframe = document.createElement("iframe");
-  iframe.src = "about:blank";
-  iframe.style.display = "block";
-  iframe.style.border = "0";
-  iframe.style.maxWidth = "none";
-  iframe.style.width = "100%";
-  iframe.style.height = "100%";
-  return iframe;
-};
-
-const getViewportWindow = (doc: Document): Window => {
-  const viewportWindow = doc.defaultView;
-  if (!viewportWindow) {
-    throw new Error("Iframe window is unavailable");
+const serializeIndexs = (indexs?: readonly number[]): string | null => {
+  if (!indexs || indexs.length === 0) {
+    return null;
   }
-  return viewportWindow;
+  return indexs.join(".");
 };
 
-const scrollToElement = (doc: Document, target: Element) => {
-  const viewportWindow = getViewportWindow(doc);
-  const top = viewportWindow.scrollY + target.getBoundingClientRect().top;
-  viewportWindow.scrollTo({ top, behavior: "auto" });
-};
-
-const scrollToFragment = (doc: Document, href: string) => {
-  const fragment = getHrefFragment(href);
-  if (!fragment) {
-    return;
+const resolveLocationMode = (paper: Paper, location: EpubLocation) => {
+  if (location.position?.mode) {
+    return location.position.mode;
   }
 
-  const target = doc.getElementById(fragment);
-  if (target) {
-    scrollToElement(doc, target);
+  if (paper.document && paper.href) {
+    return getCurrentLocation(paper).position?.mode ?? paper.mode;
   }
+
+  return paper.mode;
 };
 
-const buildIframeSrc = (prefix: string, href: string): string => {
-  const resourceUrl = resolveBookResourceUrl(prefix, href);
-  const fragment = getHrefFragment(href);
-  return fragment ? `${resourceUrl}#${fragment}` : resourceUrl;
+const buildIframeSrc = (prefix: string, paper: Paper, location: EpubLocation): string => {
+  const mode = resolveLocationMode(paper, location);
+  const url = new URL(resolveBookResourceUrl(prefix, location.html));
+  url.searchParams.set(LOCATION_MODE_PARAM, mode);
+
+  const fragment = location.fragment?.trim();
+  if (fragment) {
+    url.searchParams.set(LOCATION_FRAGMENT_PARAM, fragment);
+  }
+
+  const path = serializeIndexs(location.indexs);
+  if (path) {
+    url.searchParams.set(LOCATION_PATH_PARAM, path);
+  }
+
+  if (mode === "paginated" && location.position?.mode === "paginated") {
+    url.searchParams.set(
+      LOCATION_PAGE_PARAM,
+      String(
+        location.position?.mode === "paginated"
+          ? Math.max(0, Math.floor(location.position.pageIndex))
+          : 0,
+      ),
+    );
+  } else if (mode === "scroll" && location.position?.mode === "scroll") {
+    url.searchParams.set(
+      LOCATION_SCROLL_PARAM,
+      String(
+        location.position?.mode === "scroll"
+          ? Math.max(0, Math.floor(location.position.scrollTop))
+          : 0,
+      ),
+    );
+  }
+
+  return url.toString();
 };
 
-const waitForIframeLoad = async (
-  iframe: HTMLIFrameElement,
-  trigger: () => void,
-): Promise<Document> => {
-  return new Promise<Document>((resolve, reject) => {
-    const cleanup = () => {
-      iframe.removeEventListener("load", onLoad);
-      iframe.removeEventListener("error", onError);
-    };
+const shouldRerender = (paper: Paper, location: EpubLocation): boolean => {
+  if (!paper.document || !paper.href) {
+    return true;
+  }
 
-    const onLoad = () => {
-      cleanup();
-      const finalizeLoad = () => {
-        const loadedDocument = iframe.contentDocument;
-        if (!loadedDocument) {
-          reject(new Error("Rendered iframe has no document"));
-          return;
-        }
-        resolve(loadedDocument);
-      };
+  if (paper.href !== stripHrefFragment(location.html)) {
+    return true;
+  }
 
-      const viewportWindow = iframe.contentWindow;
-      if (viewportWindow) {
-        viewportWindow.requestAnimationFrame(finalizeLoad);
-        return;
-      }
-      queueMicrotask(finalizeLoad);
-    };
-
-    const onError = () => {
-      cleanup();
-      reject(new Error("Iframe rendering failed"));
-    };
-
-    iframe.addEventListener("load", onLoad);
-    iframe.addEventListener("error", onError);
-    trigger();
-  });
+  const current = getCurrentLocation(paper);
+  return (current.position?.mode ?? paper.mode) !== resolveLocationMode(paper, location);
 };
 
 export const createDrawer = (book: EpubBook): Drawer => {
-  const drawer: Drawer = async (root, href) => {
+  const drawer: Drawer = async (paper, location) => {
     const prefix = requireBookPrefix(book);
-    const normalizedHref = stripHrefFragment(href);
-    const iframe = createDrawerIframe();
-    root.replaceChildren(iframe);
+    const normalizedHref = stripHrefFragment(location.html);
+    const normalizedLocation: EpubLocation = {
+      ...location,
+      html: normalizedHref,
+    };
 
-    const doc = await waitForIframeLoad(iframe, () => {
-      iframe.src = buildIframeSrc(prefix, href);
-    });
+    if (!shouldRerender(paper, normalizedLocation)) {
+      await renderLocation(paper, normalizedLocation);
+      return {
+        paper,
+        iframe: paper.iframe,
+        document: paper.document!,
+        href: normalizedHref,
+      };
+    }
 
-    scrollToFragment(doc, href);
+    const renderResult = await paper.render(
+      normalizedHref,
+      buildIframeSrc(prefix, paper, normalizedLocation),
+    );
 
     return {
-      iframe,
-      document: doc,
+      paper,
+      iframe: paper.iframe,
+      document: renderResult.document,
       href: normalizedHref,
     };
   };
