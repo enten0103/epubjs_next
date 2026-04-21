@@ -106,6 +106,28 @@ describe("createFileProviderFromArrayBuffer", () => {
     expect(text).toContain("<rootfile");
   });
 
+  it("normalizes query/hash, escaped segments, and case differences in lookup paths", async () => {
+    const provider = createFileProviderFromArrayBuffer(
+      epubBuffer({
+        "OEBPS/Fonts/Title Font.TTF": "font-bytes",
+      }),
+    );
+
+    const text = await provider.getTextByPath("OEBPS/fonts/Title%20Font.ttf?v=1#font");
+    expect(text).toBe("font-bytes");
+  });
+
+  it("falls back to a unique basename when the archive path prefix differs", async () => {
+    const provider = createFileProviderFromArrayBuffer(
+      epubBuffer({
+        "EPUB/OEBPS/Fonts/title.ttf": "font-bytes",
+      }),
+    );
+
+    const text = await provider.getTextByPath("OEBPS/Fonts/title.ttf");
+    expect(text).toBe("font-bytes");
+  });
+
   it("handles custom file entries", async () => {
     const provider = createFileProviderFromArrayBuffer(
       epubBuffer({ "extra/data.txt": "custom content" }),

@@ -96,7 +96,7 @@ fileInput.addEventListener("change", async () => {
       book,
       render: "drawer",
       paper: {
-        mode: "paginated",
+        mode: "scroll",
       },
       events: {
         onDocumentChange() {

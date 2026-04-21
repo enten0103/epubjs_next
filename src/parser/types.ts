@@ -28,10 +28,6 @@ export type EpubPackage = {
   creator?: string;
 };
 
-export type EpubBookResources = {
-  prefix?: string;
-};
-
 export type EpubBook = {
   id: string;
   pkg: EpubPackage;
@@ -39,5 +35,4 @@ export type EpubBook = {
   spine: EpubSpineItem[];
   navPath?: string;
   toc?: TocItem[];
-  resources?: EpubBookResources;
 };

@@ -1,4 +1,5 @@
 import type { EpubBook } from "../parser/types.ts";
+import type { FileProvider } from "../provider/index.ts";
 import { getHrefFragment, resolveDocumentNavigationHref, stripHrefFragment } from "../utils/url.ts";
 import type { DrawerController } from "./controller.ts";
 import { useDrawerController } from "./controller.ts";
@@ -45,19 +46,14 @@ const resolveSpineIndex = (book: EpubBook, href: string): number => {
 };
 
 export const drawerRender = (
-  prefix: string,
   root: HTMLElement,
   book: EpubBook,
+  provider: FileProvider,
   paperOptions?: CreatePaperOptions,
   events?: DrawerEvents,
 ): DrawerReaderRenderResult => {
-  book.resources = {
-    ...book.resources,
-    prefix,
-  };
-
   const paper = createPaper(root, paperOptions);
-  const drawer = createDrawer(book);
+  const drawer = createDrawer(book, provider);
   const onDocumentChangeHook = createDrawerDocumentChangeHook(events);
   let currentSpineIndex = 0;
   let currentDocument: Document | null = null;
@@ -168,6 +164,7 @@ export const drawerRender = (
     destroy() {
       destroyed = true;
       currentDocument = null;
+      drawer.dispose();
       paper.destroy();
     },
     loadLocation,

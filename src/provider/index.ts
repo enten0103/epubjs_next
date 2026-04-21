@@ -8,21 +8,88 @@ export type FileProvider = {
 // ── Internal: build a FileProvider from an in-memory ZIP entries map ──
 
 function normalizePath(path: string): string {
-  return path.replace(/^\/+/, "").replace(/\\/g, "/");
+  const rawPath = path.split(/[?#]/, 1)[0]!.replace(/^\/+/, "").replace(/\\/g, "/");
+  const segments: string[] = [];
+
+  for (const segment of rawPath.split("/")) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+
+    if (segment === "..") {
+      if (segments.length > 0) {
+        segments.pop();
+      }
+      continue;
+    }
+
+    segments.push(segment.normalize("NFC"));
+  }
+
+  return segments.join("/");
+}
+
+function decodePath(path: string): string {
+  return path
+    .split("/")
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join("/");
 }
 
 function createProviderFromEntries(entries: Record<string, Uint8Array>): FileProvider {
   // Normalize all keys so lookups are resilient to leading-slash differences
   const normalized = new Map<string, Uint8Array>();
+  const relaxed = new Map<string, Uint8Array>();
+  const basenameIndex = new Map<string, Uint8Array | null>();
   for (const [key, value] of Object.entries(entries)) {
-    normalized.set(normalizePath(key), value);
+    const normalizedKey = normalizePath(key);
+    const decodedKey = decodePath(normalizedKey);
+
+    normalized.set(normalizedKey, value);
+    normalized.set(decodedKey, value);
+
+    const relaxedKeys = new Set([normalizedKey.toLowerCase(), decodedKey.toLowerCase()]);
+    for (const relaxedKey of relaxedKeys) {
+      if (!relaxed.has(relaxedKey)) {
+        relaxed.set(relaxedKey, value);
+      }
+    }
+
+    for (const candidateKey of new Set([normalizedKey, decodedKey])) {
+      const basename = candidateKey.split("/").pop()?.toLowerCase();
+      if (!basename) {
+        continue;
+      }
+
+      if (!basenameIndex.has(basename)) {
+        basenameIndex.set(basename, value);
+      } else if (basenameIndex.get(basename) !== value) {
+        basenameIndex.set(basename, null);
+      }
+    }
   }
 
   const resolve = (path: string): Uint8Array => {
     const key = normalizePath(path);
-    const data = normalized.get(key);
+    const decodedKey = decodePath(key);
+    const basename = decodedKey.split("/").pop()?.toLowerCase();
+    const data =
+      normalized.get(key) ??
+      normalized.get(decodedKey) ??
+      relaxed.get(key.toLowerCase()) ??
+      relaxed.get(decodedKey.toLowerCase()) ??
+      (basename ? (basenameIndex.get(basename) ?? undefined) : undefined);
     if (data === undefined) {
       throw new Error(`File not found in EPUB archive: ${path}`);
+    }
+    if (data === null) {
+      throw new Error(`Ambiguous EPUB archive path: ${path}`);
     }
     return data;
   };

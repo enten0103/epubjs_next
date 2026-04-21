@@ -23,7 +23,7 @@ export type Paper = {
   readonly mode: PaperMode;
   readonly document: Document | null;
   readonly href: string | null;
-  render: (href: string, src: string) => Promise<PaperRenderResult>;
+  render: (href: string, srcdoc: string) => Promise<PaperRenderResult>;
   setMode: (mode: PaperMode) => Promise<void>;
   destroy: () => void;
 };
@@ -39,16 +39,11 @@ const createPaperIframe = (): HTMLIFrameElement => {
   return iframe;
 };
 
-export const waitForPaperFrame = async (iframe: HTMLIFrameElement): Promise<void> => {
+export const waitForPaperFrame = async (_iframe: HTMLIFrameElement): Promise<void> => {
   return new Promise<void>((resolve) => {
-    const viewportWindow = iframe.contentWindow;
-    if (viewportWindow) {
-      viewportWindow.requestAnimationFrame(() => {
-        resolve();
-      });
-      return;
-    }
-    queueMicrotask(resolve);
+    requestAnimationFrame(() => {
+      resolve();
+    });
   });
 };
 
@@ -73,12 +68,7 @@ const waitForIframeLoad = async (
         resolve(loadedDocument);
       };
 
-      const viewportWindow = iframe.contentWindow;
-      if (viewportWindow) {
-        viewportWindow.requestAnimationFrame(finalizeLoad);
-        return;
-      }
-      queueMicrotask(finalizeLoad);
+      requestAnimationFrame(finalizeLoad);
     };
 
     const onError = () => {
@@ -92,13 +82,14 @@ const waitForIframeLoad = async (
   });
 };
 
-const installPaperRuntime = function () {
+const installPaperRuntime = function (historyBaseHref: string) {
   const apiKey = "__EPUBJS_NEXT_PAPER__";
   const modeParam = "__epubjs_mode";
   const scrollParam = "__epubjs_scroll";
   const pageParam = "__epubjs_page";
   const pathParam = "__epubjs_path";
   const fragmentParam = "__epubjs_fragment";
+  const stateUrlMetaName = "epubjs-next-paper-url";
   const runtimeWindow = window as unknown as Window & Record<string, unknown>;
   if (runtimeWindow[apiKey]) {
     return;
@@ -108,8 +99,25 @@ const installPaperRuntime = function () {
     return Math.min(Math.max(value, min), max);
   };
 
+  const getStateUrlMeta = function (): HTMLMetaElement {
+    const existing = document.head?.querySelector(`meta[name="${stateUrlMetaName}"]`);
+    if (existing instanceof HTMLMetaElement) {
+      return existing;
+    }
+
+    const meta = document.createElement("meta");
+    meta.name = stateUrlMetaName;
+    meta.content = historyBaseHref;
+    (document.head ?? document.documentElement).prepend(meta);
+    return meta;
+  };
+
   const readUrl = function () {
-    return new URL(window.location.href);
+    const rawUrl = getStateUrlMeta().content.trim();
+    if (rawUrl) {
+      return new URL(rawUrl);
+    }
+    return new URL(historyBaseHref);
   };
 
   const getModeFromUrl = function (): PaperMode {
@@ -180,7 +188,7 @@ const installPaperRuntime = function () {
   };
 
   const writeUrlState = function (location: EpubLocation) {
-    const url = readUrl();
+    const url = new URL(historyBaseHref);
     const mode = location.position?.mode ?? getModeFromUrl();
     url.searchParams.set(modeParam, mode);
 
@@ -220,7 +228,7 @@ const installPaperRuntime = function () {
       url.searchParams.delete(pageParam);
     }
 
-    window.history.replaceState(null, "", url.toString());
+    getStateUrlMeta().content = url.toString();
   };
 
   const rememberDisplay = function (element: HTMLElement) {
@@ -614,12 +622,14 @@ const installPaperRuntime = function () {
   runtimeWindow[apiKey] = api;
 };
 
-const PAPER_RUNTIME_SCRIPT = `;(${installPaperRuntime.toString()})();`;
+const getPaperRuntimeScript = (historyBaseHref: string) => {
+  return `;(${installPaperRuntime.toString()})(${JSON.stringify(historyBaseHref)});\n//# sourceURL=epubjs-next-paper-runtime.js`;
+};
 
-const injectPaperRuntime = (doc: Document) => {
+const injectPaperRuntime = (doc: Document, historyBaseHref: string) => {
   const script = doc.createElement("script");
   script.type = "text/javascript";
-  script.textContent = PAPER_RUNTIME_SCRIPT;
+  script.textContent = getPaperRuntimeScript(historyBaseHref);
   doc.documentElement.appendChild(script);
   script.remove();
 };
@@ -659,23 +669,22 @@ export const createPaper = (root: HTMLElement, options?: CreatePaperOptions): Pa
     get href() {
       return currentHref;
     },
-    async render(href, src) {
+    async render(href, srcdoc) {
       if (destroyed) {
         throw new Error("Paper is destroyed");
       }
 
       const doc = await waitForIframeLoad(iframe, () => {
-        iframe.src = src;
+        iframe.srcdoc = srcdoc;
       });
       if (destroyed) {
         throw new Error("Paper is destroyed");
       }
 
       doc.documentElement.setAttribute("data-epubjs-href", href);
-      injectPaperRuntime(doc);
+      injectPaperRuntime(doc, new URL("/__epubjs_paper__", window.location.href).toString());
       currentDocument = doc;
       currentHref = href;
-      getPaperRuntime(iframe).applyLocationFromUrl(href);
       await waitForPaperFrame(iframe);
 
       return {

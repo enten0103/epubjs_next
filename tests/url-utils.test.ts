@@ -1,40 +1,25 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  buildBookScopedPrefix,
+  dirname,
   getHrefFragment,
   isExternalHref,
-  normalizeUrlPrefix,
-  normalizeUrlPrefixOrDefault,
-  resolveBookResourceUrl,
+  resolveEpubPath,
   resolveDocumentNavigationHref,
-  resolveBookRootUrl,
   stripHrefFragment,
 } from "../src/utils/url.ts";
 
-describe("normalizeUrlPrefix", () => {
-  it("normalizes configured prefixes into a slash-delimited namespace", () => {
-    expect(normalizeUrlPrefix("epub")).toBe("/epub/");
-    expect(normalizeUrlPrefix("/epub")).toBe("/epub/");
-    expect(normalizeUrlPrefix("/epub/")).toBe("/epub/");
+describe("epub path helpers", () => {
+  it("computes an epub directory name", () => {
+    expect(dirname("OPS/Text/chapter-1.xhtml")).toBe("OPS/Text/");
+    expect(dirname("chapter-1.xhtml")).toBe("");
   });
 
-  it("returns null for blank input", () => {
-    expect(normalizeUrlPrefix("")).toBeNull();
-    expect(normalizeUrlPrefix("   ")).toBeNull();
-    expect(normalizeUrlPrefix(undefined)).toBeNull();
-  });
-});
-
-describe("normalizeUrlPrefixOrDefault", () => {
-  it("falls back to the provided default prefix", () => {
-    expect(normalizeUrlPrefixOrDefault("", "/epubjs-next/")).toBe("/epubjs-next/");
-  });
-});
-
-describe("buildBookScopedPrefix", () => {
-  it("encodes book ids before appending them to the prefix", () => {
-    expect(buildBookScopedPrefix("/epub/", "book 1/intro")).toBe("/epub/book%201%2Fintro");
+  it("resolves relative epub paths while preserving fragments", () => {
+    expect(resolveEpubPath("OPS/Text/", "../Styles/book.css")).toBe("OPS/Styles/book.css");
+    expect(resolveEpubPath("OPS/Text/", "chapter-2.xhtml#sec-1")).toBe(
+      "OPS/Text/chapter-2.xhtml#sec-1",
+    );
   });
 });
 
@@ -73,23 +58,5 @@ describe("resolveDocumentNavigationHref", () => {
     expect(resolveDocumentNavigationHref("Text/chapter-1.xhtml", "mailto:test@example.com")).toBe(
       null,
     );
-  });
-});
-
-describe("prefixed resource urls", () => {
-  it("resolves the book root from the configured prefix", () => {
-    expect(resolveBookRootUrl("/reader/book-1/", "https://reader.test/app/").toString()).toBe(
-      "https://reader.test/reader/book-1/",
-    );
-  });
-
-  it("builds fetch urls for XHTML resources", () => {
-    expect(
-      resolveBookResourceUrl(
-        "/reader/book-1/",
-        "Text/chapter-1.xhtml#sec-1",
-        "https://reader.test/app/",
-      ),
-    ).toBe("https://reader.test/reader/book-1/Text/chapter-1.xhtml");
   });
 });

@@ -1,8 +1,5 @@
 import type { EpubBook } from "./parser/types.ts";
 import type { FileProvider } from "./provider/index.ts";
-import { createEpubServiceWorker } from "./provider/server.ts";
-import type { BookHandle, EpubServiceWorker } from "./provider/server.ts";
-import { buildEpubBookPrefix } from "./provider/runtime.ts";
 import type { DrawerController } from "./render/controller.ts";
 import type { CreatePaperOptions, Paper } from "./render/paper.ts";
 import type {
@@ -13,7 +10,7 @@ import type {
 import { drawerRender } from "./render/render.ts";
 import type { DrawerReaderRenderResult } from "./render/render.ts";
 
-export type { EpubBook, EpubBookResources } from "./parser/types.ts";
+export type { EpubBook } from "./parser/types.ts";
 export type {
   EpubLocation,
   EpubLocationPosition,
@@ -23,6 +20,7 @@ export type {
 } from "./render/location.ts";
 export type { Drawer, DrawerRenderResult } from "./render/drawer.ts";
 export type { DrawerController } from "./render/controller.ts";
+export type { BookBlobResourceRuntime } from "./render/blob-resource.ts";
 export type { CreatePaperOptions, Paper, PaperRenderResult } from "./render/paper.ts";
 export type {
   DrawerDocumentChangeEvent,
@@ -31,6 +29,7 @@ export type {
 } from "./render/event.ts";
 export type { DrawerReaderRenderContext, DrawerReaderRenderResult } from "./render/render.ts";
 export { createDrawer } from "./render/drawer.ts";
+export { createBookBlobResourceRuntime } from "./render/blob-resource.ts";
 export { getCurrentLocation } from "./render/location.ts";
 export { useDrawerController } from "./render/controller.ts";
 export { createPaper } from "./render/paper.ts";
@@ -41,9 +40,7 @@ export type ReaderRoot = string | HTMLElement;
 export type ReaderRender = "drawer";
 
 export type CreateReaderOptions = {
-  prefix?: string;
-  provider?: FileProvider;
-  serviceWorker?: EpubServiceWorker | Promise<EpubServiceWorker>;
+  provider: FileProvider;
   root: ReaderRoot;
   book: EpubBook;
   render: ReaderRender;
@@ -64,13 +61,6 @@ export type DrawerReader = {
 
 export type Reader = DrawerReader;
 
-type DrawerReaderRuntime = {
-  renderResult: DrawerReaderRenderResult;
-  bookHandle?: BookHandle;
-};
-
-const serviceWorkerCache = new Map<string, Promise<EpubServiceWorker>>();
-
 const resolveRoot = (root: ReaderRoot): HTMLElement => {
   if (typeof root === "string") {
     const rootElement = document.getElementById(root);
@@ -86,154 +76,56 @@ const resolveRoot = (root: ReaderRoot): HTMLElement => {
   return root;
 };
 
-const getCachedServiceWorker = (prefix?: string): Promise<EpubServiceWorker> => {
-  const cacheKey = prefix ?? "__default__";
-  const existing = serviceWorkerCache.get(cacheKey);
-  if (existing) {
-    return existing;
-  }
-
-  const next = createEpubServiceWorker(prefix ? { prefix } : undefined).catch((error) => {
-    serviceWorkerCache.delete(cacheKey);
-    throw error;
-  });
-  serviceWorkerCache.set(cacheKey, next);
-  return next;
-};
-
-const resolveRenderPrefix = async (
-  options: CreateReaderOptions,
-): Promise<{
-  renderPrefix: string;
-  bookHandle?: BookHandle;
-}> => {
-  if (!options.provider) {
-    if (!options.prefix) {
-      throw new Error("prefix is required when provider is not supplied");
-    }
-    return {
-      renderPrefix: options.prefix,
-    };
-  }
-
-  const serviceWorker = await (options.serviceWorker
-    ? Promise.resolve(options.serviceWorker)
-    : getCachedServiceWorker(options.prefix));
-  const bookHandle = serviceWorker.addBook(options.provider, options.book.id);
-  const renderPrefix = buildEpubBookPrefix(serviceWorker.prefix, options.book.id);
-  return {
-    renderPrefix,
-    bookHandle,
-  };
-};
-
 const createDrawerReader = (options: CreateReaderOptions): DrawerReader => {
-  const root = resolveRoot(options.root);
-  let runtime: DrawerReaderRuntime | undefined;
-  let setupPromise: Promise<DrawerReaderRuntime> | undefined;
-  let destroyed = false;
-
-  const destroyRuntime = (value: DrawerReaderRuntime) => {
-    if (destroyed) {
-      return;
-    }
-    destroyed = true;
-    value.renderResult.destroy();
-    value.bookHandle?.dispose();
-  };
-
-  const ensureRuntime = async (): Promise<DrawerReaderRuntime> => {
-    if (runtime) {
-      return runtime;
-    }
-    if (setupPromise) {
-      return setupPromise;
-    }
-
-    setupPromise = (async () => {
-      const { renderPrefix, bookHandle } = await resolveRenderPrefix(options);
-      const renderResult = drawerRender(
-        renderPrefix,
-        root,
-        options.book,
-        options.paper,
-        options.events,
-      );
-      const nextRuntime: DrawerReaderRuntime = {
-        renderResult,
-        bookHandle,
-      };
-      runtime = nextRuntime;
-
-      if (destroyed) {
-        nextRuntime.renderResult.destroy();
-        nextRuntime.bookHandle?.dispose();
-      }
-
-      return nextRuntime;
-    })();
-
-    return setupPromise;
-  };
-
-  const requireRuntime = (): DrawerReaderRuntime => {
-    if (!runtime) {
-      throw new Error("Reader is not ready yet");
-    }
-    return runtime;
-  };
+  const renderResult = drawerRender(
+    resolveRoot(options.root),
+    options.book,
+    options.provider,
+    options.paper,
+    options.events,
+  );
 
   return {
     render: "drawer",
     book: options.book,
     get paper() {
-      return requireRuntime().renderResult.paper;
+      return renderResult.paper;
     },
     get iframe() {
-      return requireRuntime().renderResult.iframe;
+      return renderResult.iframe;
     },
     get ready() {
-      return ensureRuntime().then((value) => value.renderResult.ready);
+      return renderResult.ready;
     },
     destroy() {
-      if (runtime) {
-        destroyRuntime(runtime);
-        return;
-      }
-      destroyed = true;
-      if (setupPromise) {
-        void setupPromise.then((value) => {
-          value.renderResult.destroy();
-          value.bookHandle?.dispose();
-        });
-      }
+      renderResult.destroy();
     },
     loadHref(href) {
-      return ensureRuntime().then((value) => value.renderResult.loadHref(href));
+      return renderResult.loadHref(href);
     },
     loadSpine(index) {
-      return ensureRuntime().then((value) => value.renderResult.loadSpine(index));
+      return renderResult.loadSpine(index);
     },
     getCurrentDocument() {
-      return requireRuntime().renderResult.getCurrentDocument();
+      return renderResult.getCurrentDocument();
     },
     getCurrentSpineIndex() {
-      return requireRuntime().renderResult.getCurrentSpineIndex();
+      return renderResult.getCurrentSpineIndex();
     },
     onDocumentChange(listener) {
-      return requireRuntime().renderResult.onDocumentChange(listener);
+      return renderResult.onDocumentChange(listener);
     },
     setLocation(location) {
-      return ensureRuntime().then((value) => value.renderResult.controller.setLocation(location));
+      return renderResult.ready.then(() => renderResult.controller.setLocation(location));
     },
     getCurrent() {
-      return requireRuntime().renderResult.controller.getCurrent();
+      return renderResult.controller.getCurrent();
     },
     next() {
-      return ensureRuntime().then((value) => value.renderResult.controller.next());
+      return renderResult.ready.then(() => renderResult.controller.next());
     },
     prev() {
-      return ensureRuntime().then((value) => value.renderResult.controller.prev());
+      return renderResult.ready.then(() => renderResult.controller.prev());
     },
   };
 };
